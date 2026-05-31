@@ -1,37 +1,27 @@
-# ============================================
-# TRAINING TESTS
-# ============================================
-
 import pytest
 from datetime import datetime, timezone
 
-from app.features.training.training_service import TrainingService
+from app.common.crud.crud_schemas import CrudFilters
+from app.core.api.exceptions import NotFoundException
+from app.features.training.training_model import TrainingStatus
 from app.features.training.training_repository import TrainingRepository
 from app.features.training.training_schemas import TrainingCreate, TrainingUpdate
-from app.features.training.training_model import TrainingStatus
-from app.core.api.exceptions import NotFoundException
+from app.features.training.training_service import TrainingService
 
-
-# ============================================
-# TRAINING REPOSITORY TESTS
-# ============================================
 
 class TestTrainingRepository:
 
     def test_create_training(self, db_session, create_company):
         company = create_company()
         repo = TrainingRepository(db_session)
-        training = repo.create(
-            {
-                "company_id": company.id,
-                "start_training_date_time": datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
-                "end_training_date_time": datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
-                "price": 200,
-                "payed": False,
-                "status": TrainingStatus.INCOMING.value,
-            },
-            user_ids=[],
-        )
+        training = repo.create({
+            "company_id": company.id,
+            "start_training_date_time": datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
+            "end_training_date_time": datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
+            "price": 200,
+            "payed": False,
+            "status": TrainingStatus.INCOMING.value,
+        })
         assert training.id is not None
         assert training.price == 200
 
@@ -39,17 +29,15 @@ class TestTrainingRepository:
         company = create_company()
         user = create_user(email="player@test.com", company_id=company.id)
         repo = TrainingRepository(db_session)
-        training = repo.create(
-            {
-                "company_id": company.id,
-                "start_training_date_time": datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
-                "end_training_date_time": datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
-                "price": 100,
-                "payed": False,
-                "status": TrainingStatus.INCOMING.value,
-            },
-            user_ids=[user.id],
-        )
+        training = repo.create({
+            "company_id": company.id,
+            "start_training_date_time": datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
+            "end_training_date_time": datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
+            "price": 100,
+            "payed": False,
+            "status": TrainingStatus.INCOMING.value,
+            "users_list": [user.id],
+        })
         assert len(training.users) == 1
         assert training.users[0].id == user.id
 
@@ -70,7 +58,7 @@ class TestTrainingRepository:
         create_training(company_id=company.id)
         create_training(company_id=company.id)
         repo = TrainingRepository(db_session)
-        items = repo.get_list()
+        items, _ = repo.get_list(CrudFilters())
         assert len(items) == 2
 
     def test_get_list_pagination(self, db_session, create_company, create_training):
@@ -78,8 +66,8 @@ class TestTrainingRepository:
         for _ in range(5):
             create_training(company_id=company.id)
         repo = TrainingRepository(db_session)
-        page = repo.get_list(skip=0, limit=2)
-        assert len(page) == 2
+        items, _ = repo.get_list(CrudFilters(size=2))
+        assert len(items) == 2
 
     def test_update_training(self, db_session, create_company, create_training):
         company = create_company()
@@ -97,13 +85,9 @@ class TestTrainingRepository:
         user = create_user(email="newplayer@test.com", company_id=company.id)
         training = create_training(company_id=company.id)
         repo = TrainingRepository(db_session)
-        updated = repo.update(training.id, {}, user_ids=[user.id])
+        updated = repo.update(training.id, {"users_list": [user.id]})
         assert len(updated.users) == 1
 
-
-# ============================================
-# TRAINING SERVICE TESTS
-# ============================================
 
 class TestTrainingServiceCreate:
 
@@ -150,7 +134,7 @@ class TestTrainingServiceGet:
         company = create_company()
         create_training(company_id=company.id)
         service = TrainingService(db_session)
-        items = service.get_list()
+        items, _ = service.get_list(CrudFilters())
         assert len(items) >= 1
 
 
@@ -184,54 +168,38 @@ class TestTrainingServiceUpdate:
         assert len(updated.users) == 1
 
 
-# ============================================
-# TRAINING ROUTER / ENDPOINT TESTS
-# ============================================
-
 class TestTrainingEndpoints:
 
     def test_create_training_endpoint(self, client, db_session, create_company, auth_headers):
         headers, user, company = auth_headers
-        from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
-            mock_get.return_value = headers["Authorization"].split(" ")[1]
-            response = client.post("/api/training/", json={
-                "company_id": company.id,
-                "start_training_date_time": "2026-05-01T10:00:00Z",
-                "end_training_date_time": "2026-05-01T11:00:00Z",
-                "price": 100,
-            }, headers=headers)
-            assert response.status_code == 201
+        response = client.post("/api/training/", json={
+            "company_id": company.id,
+            "start_training_date_time": "2026-05-01T10:00:00Z",
+            "end_training_date_time": "2026-05-01T11:00:00Z",
+            "price": 100,
+        }, headers=headers)
+        assert response.status_code == 201
 
     def test_get_trainings_endpoint(self, client, db_session, create_company, create_training, auth_headers):
         headers, user, company = auth_headers
         create_training(company_id=company.id)
-        from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
-            mock_get.return_value = headers["Authorization"].split(" ")[1]
-            response = client.get("/api/training/", headers=headers)
-            assert response.status_code == 200
-            assert isinstance(response.json()["data"], list)
+        response = client.get("/api/training/", headers=headers)
+        assert response.status_code == 200
+        assert isinstance(response.json()["data"]["items"], list)
 
     def test_get_training_by_id_endpoint(self, client, db_session, create_company, create_training, auth_headers):
         headers, user, company = auth_headers
         training = create_training(company_id=company.id)
-        from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
-            mock_get.return_value = headers["Authorization"].split(" ")[1]
-            response = client.get(f"/api/training/{training.id}", headers=headers)
-            assert response.status_code == 200
+        response = client.get(f"/api/training/{training.id}", headers=headers)
+        assert response.status_code == 200
 
     def test_update_training_endpoint(self, client, db_session, create_company, create_training, auth_headers):
         headers, user, company = auth_headers
         training = create_training(company_id=company.id)
-        from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
-            mock_get.return_value = headers["Authorization"].split(" ")[1]
-            response = client.put(f"/api/training/{training.id}", json={
-                "price": 999,
-            }, headers=headers)
-            assert response.status_code == 200
+        response = client.put(f"/api/training/{training.id}", json={
+            "price": 999,
+        }, headers=headers)
+        assert response.status_code == 200
 
     def test_create_training_unauthenticated(self, client):
         response = client.post("/api/training/", json={

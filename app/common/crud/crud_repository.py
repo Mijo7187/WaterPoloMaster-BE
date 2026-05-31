@@ -143,7 +143,9 @@ class CrudRepository(Generic[ModelType]):
     # ── CRUD operations ─────────────────────────────
 
     def create(self, data: dict) -> ModelType:
-        db_obj = self.model(**data)
+        data = dict(data)  # copy — apply_create_relations may mutate it
+        col_keys = {col.key for col in self.model.__table__.columns}
+        db_obj = self.model(**{k: v for k, v in data.items() if k in col_keys})
         self.apply_create_relations(db_obj, data)
         self.db.add(db_obj)
         self.db.commit()
@@ -189,8 +191,11 @@ class CrudRepository(Generic[ModelType]):
         db_obj = self.get_by_id(obj_id)
         if not db_obj:
             return None
+        data = dict(data)  # copy — apply_update_relations may mutate it
+        col_keys = {col.key for col in self.model.__table__.columns}
         for key, value in data.items():
-            setattr(db_obj, key, value)
+            if key in col_keys:
+                setattr(db_obj, key, value)
         self.apply_update_relations(db_obj, data)
         self.db.commit()
         self.db.refresh(db_obj)

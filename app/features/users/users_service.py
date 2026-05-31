@@ -28,7 +28,7 @@ class UserService(CrudService[User]):
 
     # ── Overrides ────────────────────────────────────
 
-    def create(self, schema: UserCreate) -> User:
+    def create(self, schema: UserCreate, current_user=None) -> User:
         from app.features.wallet.wallet_model import Wallet, WalletOwnerType
 
         errors = []
