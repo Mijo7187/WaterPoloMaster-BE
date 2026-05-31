@@ -10,7 +10,6 @@ from app.core.db.database import get_db
 from app.core.permissions import Permission, check_permissions
 from app.features.sifarnici.income_category.income_category_model import IncomeCategory
 from app.features.sifarnici.income_category.income_category_schemas import (
-    IncomeCategoryFilters,
     IncomeCategoryResponse,
 )
 from app.features.sifarnici.income_category.income_category_service import IncomeCategoryService

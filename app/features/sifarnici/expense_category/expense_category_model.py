@@ -1,4 +1,3 @@
-import uuid
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UUID
 from sqlalchemy.sql import func

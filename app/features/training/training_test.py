@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from app.features.training.training_service import TrainingService
 from app.features.training.training_repository import TrainingRepository
 from app.features.training.training_schemas import TrainingCreate, TrainingUpdate
-from app.features.training.training_model import Training, TrainingStatus
+from app.features.training.training_model import TrainingStatus
 from app.core.api.exceptions import NotFoundException
 
 

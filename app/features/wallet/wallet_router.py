@@ -4,12 +4,10 @@ import uuid
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
-from app.common.crud.crud_schemas import CrudFilters
 from app.core.api.responses import success_response
 from app.core.db.database import get_db
 from app.core.permissions import Permission, check_permissions
 from app.features.wallet.wallet_schemas import (
-    LedgerEntry,
     WalletCreate,
     WalletFilters,
     WalletResponse,

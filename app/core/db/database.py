@@ -59,7 +59,7 @@ def get_db() -> Generator[Session, None, None]:
     """
     # Create a new database session
     db = SessionLocal()
-    
+
     try:
         # Provide the session to the route
         yield db
@@ -82,14 +82,11 @@ def create_tables():
     This is useful for development/testing
     """
     from app.core.db.base import Base
-    
+
     # Import all models here so they are registered with Base
-    from app.features.users.users_models import User
-    from app.features.company.company_model import Company
-    from app.features.training.training_model import Training
     # Import other models as you create them
     # from app.features.teams.teams.models import Team
-    
+
     # Create all tables
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created successfully!")
@@ -104,7 +101,7 @@ def create_tables():
 #
 # In routes:
 # from app.core.db.database import get_db
-# 
+#
 # @router.get("/")
 # def my_route(db: Session = Depends(get_db)):
 #     # db is your database session

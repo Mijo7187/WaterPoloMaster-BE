@@ -37,4 +37,3 @@ class CountryListResponse(CrudResponseSchema):
 class CountryFilters(CrudFilters):
     name__ilike: Optional[str] = None
     is_active: Optional[bool] = None
-    

@@ -34,5 +34,5 @@ router = create_crud_router(
         filters=CountryFilters,
         dependencies=[Depends(check_permissions(Permission.VIEW_COUNTRIES))],
     ),
-  
+
 )

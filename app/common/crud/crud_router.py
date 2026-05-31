@@ -25,16 +25,14 @@
 # ============================================
 
 import math
-from typing import Callable, List, Any, Optional
+from typing import Callable, List, Any
 
-from fastapi import APIRouter, Depends, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.common.crud.crud_schemas import CrudEndpointConfig, CrudFilters,CrudListEndpointConfig
 from app.core.db.database import get_db
 from app.core.api.responses import success_response
-from app.common.crud.crud_service import CrudService
 
 
 def create_crud_router(
@@ -68,15 +66,15 @@ def create_crud_router(
         - Pagination uses page/size params (defined in CrudFilters base class)
         - GET list always returns { items, total, page, size, pages }
     """
- 
+
     # Lazy import to avoid circular dependency between common/ and features/
     from app.features.auth.auth_dependencies import get_current_active_user
     from app.features.users.users_models import User
 
     router = APIRouter(prefix=prefix, tags=[tag])
- 
+
     # ── POST / ──────────────────────────────────────
- 
+
     @router.post(
         "/",
         status_code=status.HTTP_201_CREATED,
@@ -94,11 +92,11 @@ def create_crud_router(
             messages=[f"{tag} created"],
             status_code=201,
         )
- 
+
     # ── GET / ───────────────────────────────────────
- 
+
     filter_schema = get_list_conf.filters or CrudFilters
- 
+
     @router.get(
         "/",
         dependencies=get_list_conf.dependencies or [],
@@ -110,7 +108,7 @@ def create_crud_router(
         service = service_factory(db)
         items, total = service.get_list(filters=filters)
         pages = math.ceil(total / filters.size) if total else 0
- 
+
         return success_response(
             data={
                 "items": [get_list_conf.schema.model_validate(i).model_dump() for i in items],
@@ -122,9 +120,9 @@ def create_crud_router(
                 },
             }
         )
- 
+
     # ── GET /{id} ───────────────────────────────────
- 
+
     @router.get(
         "/{item_id}",
         dependencies=get_by_id_conf.dependencies or [],
@@ -138,9 +136,9 @@ def create_crud_router(
         return success_response(
             data=get_by_id_conf.schema.model_validate(obj).model_dump(),
         )
- 
+
     # ── PUT /{id} ───────────────────────────────────
- 
+
     @router.put(
         "/{item_id}",
         dependencies=update_conf.dependencies or [],
@@ -157,9 +155,9 @@ def create_crud_router(
             data=get_by_id_conf.schema.model_validate(obj).model_dump(),
             messages=[f"{tag} updated"],
         )
- 
+
     # ── POST /{id}/deactivate (soft delete) ─────────
- 
+
     if enable_soft_delete:
         @router.post(
             "/{item_id}/deactivate",
@@ -175,5 +173,5 @@ def create_crud_router(
                 data=get_by_id_conf.schema.model_validate(obj).model_dump(),
                 messages=[f"{tag} deactivated"],
             )
- 
+
     return router

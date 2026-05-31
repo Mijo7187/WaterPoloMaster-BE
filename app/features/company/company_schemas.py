@@ -4,8 +4,7 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
-from datetime import datetime
+from pydantic import ConfigDict, EmailStr, Field
 from typing import Optional
 
 from app.common.crud.crud_schemas import CrudResponseSchema, CrudUpdateSchema
@@ -82,4 +81,3 @@ class CompanyFilters(CrudFilters):
     company_type: Optional[CompanyType] = None
     city_id: Optional[int] = None
     country_id: Optional[int] = None
-    

@@ -1,10 +1,10 @@
 import uuid
 import pytest
 
-from app.features.wallet.wallet_model import Wallet, WalletOwnerType
+from app.features.wallet.wallet_model import WalletOwnerType
 from app.features.wallet.wallet_repository import WalletRepository
 from app.features.wallet.wallet_service import WalletService
-from app.features.wallet.wallet_schemas import WalletCreate, WalletUpdate
+from app.features.wallet.wallet_schemas import WalletCreate
 from app.core.api.exceptions import NotFoundException
 
 

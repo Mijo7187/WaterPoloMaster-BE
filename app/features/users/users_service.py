@@ -46,7 +46,7 @@ class UserService(CrudService[User]):
         user = User(**data)
         self.db.add(user)
         self.db.flush()
-        
+
 
         wallet = Wallet(owner_id=user.id, owner_type=WalletOwnerType.USER)
         self.db.add(wallet)

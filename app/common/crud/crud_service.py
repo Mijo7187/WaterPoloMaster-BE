@@ -31,7 +31,7 @@
 # ============================================
 
 from sqlalchemy.orm import Session
-from typing import Optional, List, TypeVar, Generic, Any, Dict, Tuple
+from typing import Optional, List, TypeVar, Generic, Any, Tuple
 
 from pydantic import BaseModel
 

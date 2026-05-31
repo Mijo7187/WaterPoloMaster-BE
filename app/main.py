@@ -79,10 +79,10 @@ def on_startup():
     print("🚀 Starting WaterPoloMaster Backend...")
     print(f"📝 Environment: {settings.APP_ENV}")
     print(f"🗄️  Database: {settings.DATABASE_URL}")
-    
+
     # Create all database tables
     create_tables()
-    
+
     print("✅ Application started successfully!")
     print(f"📚 API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
 
@@ -183,7 +183,7 @@ app.include_router(
 #     prefix="/api",
 #     tags=["Teams"]
 # )
-# 
+#
 # app.include_router(
 #     matches_router,
 #     prefix="/api",
@@ -214,7 +214,7 @@ app.include_router(
 # /health                  → Health check
 # /docs                    → Swagger UI (interactive API docs)
 # /redoc                   → ReDoc (alternative API docs)
-# 
+#
 # /api/users/           → User endpoints
 #   ├── POST   /           → Create user
 #   ├── GET    /           → Get all users

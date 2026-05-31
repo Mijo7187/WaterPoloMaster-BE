@@ -8,7 +8,7 @@ from datetime import date
 from app.features.users.users_service import UserService
 from app.features.users.users_schemas import UserCreate, UserUpdate
 from app.features.users.users_repository import UserRepository
-from app.features.users.users_models import User, UserRole
+from app.features.users.users_models import UserRole
 from app.core.api.exceptions import NotFoundException, ConflictException, BadRequestException
 
 
