@@ -1,0 +1,6 @@
+[lint]
+# Only check for real errors (unused imports, undefined names) — not style/whitespace
+select = ["F"]
+
+[lint.per-file-ignores]
+"alembic/*" = ["F401", "F811"]

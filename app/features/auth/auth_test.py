@@ -2,12 +2,9 @@
 # AUTH TESTS
 # ============================================
 
-import pytest
-from unittest.mock import patch, MagicMock
-from datetime import date
+from unittest.mock import patch
 
 from app.features.auth.auth_service import AuthService
-from app.features.users.users_models import UserRole
 
 
 # ============================================
@@ -19,7 +16,7 @@ class TestAuthServiceAuthenticate:
 
     def test_authenticate_valid_credentials(self, db_session, create_company, create_user):
         company = create_company()
-        user = create_user(
+        create_user(
             email="auth@test.com",
             username="authuser",
             password="testpass",
