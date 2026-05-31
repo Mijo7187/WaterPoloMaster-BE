@@ -5,7 +5,7 @@
 # Dependencies run BEFORE your endpoint and provide validated data
 #
 # Think of them as "middleware" that runs per-route
-# 
+#
 # USAGE:
 # @router.get("/protected", dependencies=[Depends(get_current_user)])
 # def protected_route(user = Depends(get_current_user)):
@@ -67,29 +67,29 @@ async def get_current_user(
     """
     # Extract token from credentials
     token = credentials.credentials
-    
+
     # Decode token to get user email
     payload = decode_access_token(token)
-    
+
     if payload is None:
         raise UnauthorizedException("Invalid authentication credentials")
-    
+
     # Get user email from token
     user_email: str = payload.get("sub")
-    
+
     if user_email is None:
         raise UnauthorizedException("Invalid token payload")
-    
+
     # Check token type (should be "access")
     token_type: str = payload.get("type")
     if token_type != "access":
         raise UnauthorizedException("Invalid token type. Use access token.")
-    
+
     # Get user_id from token and verify against Redis
     user_id: int = payload.get("user_id")
     if user_id is None:
         raise UnauthorizedException("Invalid token payload")
-    
+
     stored_token = get_access_token(user_id)
     if stored_token != token:
         raise UnauthorizedException("Token has been revoked or expired")
@@ -132,7 +132,7 @@ async def get_current_active_user(
     """
     if not current_user.is_active:
         raise ForbiddenException("Inactive user. Account may be suspended.")
-    
+
     return current_user
 
 
@@ -174,7 +174,7 @@ async def require_admin(
     """
     if UserRole.ADMIN not in (current_user.roles or []):
         raise ForbiddenException("Admin access required. Insufficient permissions.")
-    
+
     return current_user
 
 
@@ -210,23 +210,23 @@ async def get_current_user_optional(
     """
     if credentials is None:
         return None
-    
+
     try:
         token = credentials.credentials
         payload = decode_access_token(token)
-        
+
         if payload is None:
             return None
-        
+
         user_email = payload.get("sub")
         if user_email is None:
             return None
-        
+
         user_repo = UserRepository(db)
         user = user_repo.get_user_by_email(user_email)
-        
+
         return user
-        
+
     except Exception:
         return None
 

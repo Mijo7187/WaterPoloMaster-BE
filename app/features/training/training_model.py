@@ -40,7 +40,7 @@ class Training(Base):
     __tablename__ = "training"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    
+
     company_id = Column(Integer, ForeignKey("company.id"), nullable=False)
     start_training_date_time = Column(DateTime(timezone=True), nullable=False)
     end_training_date_time = Column(DateTime(timezone=True), nullable=False)

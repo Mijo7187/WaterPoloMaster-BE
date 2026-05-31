@@ -1,6 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Annotated, Any, Callable, List, Optional, Type
+from typing import Any, Callable, List, Optional, Type
 
 from pydantic import BaseModel, ConfigDict, Field
 

@@ -18,14 +18,14 @@ class CityCreate(CrudCreateSchema):
     name: str = Field(..., min_length=1, max_length=255)
     is_active: bool = True
     country_id: int
-    
+
 
 
 class CityUpdate(CrudUpdateSchema):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     is_active: Optional[bool] = None
     country_id: Optional[int] = None
-    
+
 
 
 class CityListResponse(CrudResponseSchema):
@@ -56,4 +56,4 @@ class CityFilters(CrudFilters):
     name__ilike: Optional[str] = None
     is_active: Optional[bool] = None
     country_id: Optional[int] = None
-    
+

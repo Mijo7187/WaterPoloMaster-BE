@@ -3,7 +3,6 @@
 # ============================================
 
 import enum
-from pydantic.v1 import validator
 from sqlalchemy import Boolean, Column, Integer, String, DateTime, ForeignKey, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -18,7 +17,7 @@ class CompanyType(str, enum.Enum):
     CLUB = "CLUB"
     POOL = "POOL"
     SUPPLIER = "SUPPLIER"
-    
+
 
 
 class Company(Base):

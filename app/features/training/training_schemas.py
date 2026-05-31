@@ -2,7 +2,7 @@
 # TRAINING SCHEMAS - Data Validation
 # ============================================
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 from datetime import datetime
 from typing import Optional, List
 
@@ -37,7 +37,7 @@ class TrainingUpdate(CrudUpdateSchema):
 class TrainingListResponse(CrudResponseSchema):
     """Lightweight schema for list view."""
 
-    
+
     company_id: int
     start_training_date_time: datetime
     end_training_date_time: datetime
@@ -52,7 +52,7 @@ class TrainingListResponse(CrudResponseSchema):
 class TrainingResponse(CrudResponseSchema):
     """Full schema for get by id — includes nested users and pool."""
 
-    
+
     company_id: int
     start_training_date_time: datetime
     end_training_date_time: datetime
@@ -62,7 +62,7 @@ class TrainingResponse(CrudResponseSchema):
     company: Optional[CompanyListResponse] = None
     pool: Optional[CompanyListResponse] = None
     users: List[UserResponse] = []
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 

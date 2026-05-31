@@ -200,9 +200,10 @@ def create_training(db_session):
 def auth_headers(create_company, create_user, mock_redis):
     """
     Return Authorization headers for a default admin user.
-    Useful for testing protected endpoints.
+    Patches get_access_token at the point of use so token validation passes.
     """
     from app.core.security import create_access_token
+    from unittest.mock import patch
 
     company = create_company()
     user = create_user(
@@ -218,21 +219,22 @@ def auth_headers(create_company, create_user, mock_redis):
         "type": "access",
     })
 
-    # Make the mock return this token so auth dependency passes
-    mock_redis["store_access_token"](user.id, token)
-
-    return {"Authorization": f"Bearer {token}"}, user, company
+    with patch("app.features.auth.auth_dependencies.get_access_token", return_value=token):
+        yield {"Authorization": f"Bearer {token}"}, user, company
 
 
 @pytest.fixture()
-def super_admin_headers(create_user, mock_redis):
+def super_admin_headers(create_company, create_user, mock_redis):
     """Return Authorization headers for a SUPER_ADMIN user."""
     from app.core.security import create_access_token
+    from unittest.mock import patch
 
+    company = create_company()
     user = create_user(
         email="super@test.com",
         username="superadmin",
         roles=[UserRole.SUPER_ADMIN],
+        company_id=company.id,
     )
     token = create_access_token({
         "sub": user.email,
@@ -240,6 +242,6 @@ def super_admin_headers(create_user, mock_redis):
         "roles": user.roles,
         "type": "access",
     })
-    mock_redis["store_access_token"](user.id, token)
 
-    return {"Authorization": f"Bearer {token}"}, user
+    with patch("app.features.auth.auth_dependencies.get_access_token", return_value=token):
+        yield {"Authorization": f"Bearer {token}"}, user, company

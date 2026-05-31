@@ -21,8 +21,8 @@ from app.core.db.base import Base
 from app.common.crud.crud_schemas import CrudFilters
 
 ModelType = TypeVar("ModelType", bound=Base)
- 
- 
+
+
 class CrudRepository(Generic[ModelType]):
     """
     Generic repository with standard CRUD operations.
@@ -34,13 +34,13 @@ class CrudRepository(Generic[ModelType]):
     - Pagination (page/size extracted from CrudFilters)
     - model_dump (Pydantic → dict happens here, not in service/router)
     """
- 
+
     def __init__(self, db: Session, model: Type[ModelType]):
         self.db = db
         self.model = model
- 
+
     # ── Override in subclass ────────────────────────
- 
+
     def get_list_relations(self) -> List[Any]:
         """
         Selectinload options applied on get_list queries.
@@ -65,7 +65,7 @@ class CrudRepository(Generic[ModelType]):
             ]
         """
         return []
- 
+
     def _apply_filter(self, q, key: str, value: Any):
         """
         Parse field__operator convention and apply SQLAlchemy filter.
@@ -81,17 +81,17 @@ class CrudRepository(Generic[ModelType]):
             field, operator = key.rsplit("__", 1)
         else:
             field, operator = key, "eq"
- 
+
         if not hasattr(self.model, field):
             return q
- 
+
         column = getattr(self.model, field)
- 
+
         # Auto IN for comma-separated values
         if isinstance(value, str) and "," in value:
             values = [v.strip() for v in value.split(",")]
             return q.filter(column.in_(values))
- 
+
         match operator:
             case "eq":
                 q = q.filter(column == value)
@@ -113,7 +113,7 @@ class CrudRepository(Generic[ModelType]):
                 q = q.filter(column.is_(None) if value else column.isnot(None))
             case _:
                 q = q.filter(column == value)
- 
+
         return q
 
     def apply_create_relations(self, db_obj: ModelType, data: dict) -> None:
@@ -139,23 +139,25 @@ class CrudRepository(Generic[ModelType]):
                     user_ids = data.pop("users_list")
                     db_obj.users = self.db.query(User).filter(User.id.in_(user_ids)).all()
         """
- 
+
     # ── CRUD operations ─────────────────────────────
- 
+
     def create(self, data: dict) -> ModelType:
-        db_obj = self.model(**data)
+        data = dict(data)  # copy — apply_create_relations may mutate it
+        col_keys = {col.key for col in self.model.__table__.columns}
+        db_obj = self.model(**{k: v for k, v in data.items() if k in col_keys})
         self.apply_create_relations(db_obj, data)
         self.db.add(db_obj)
         self.db.commit()
         self.db.refresh(db_obj)
         return db_obj
- 
+
     def get_by_id(self, obj_id: int) -> Optional[ModelType]:
         q = self.db.query(self.model)
         for opt in self.get_by_id_relations():
             q = q.options(opt() if callable(opt) else opt)
         return q.filter(self.model.id == obj_id).first()
- 
+
     def get_list(self, filters: CrudFilters) -> Tuple[List[ModelType], int]:
         """
         Returns (items, total) tuple.
@@ -167,35 +169,38 @@ class CrudRepository(Generic[ModelType]):
         page = filter_dict.pop("page", filters.page)
         size = filter_dict.pop("size", filters.size)
         offset = (page - 1) * size
- 
+
         q = self.db.query(self.model)
- 
+
         # Apply default relations
         for opt in self.get_list_relations():
             q = q.options(opt() if callable(opt) else opt)
- 
+
         # Apply filters
         for key, value in filter_dict.items():
             if value is None:
                 continue
             q = self._apply_filter(q, key, value)
- 
+
         total = q.count()
         items = q.order_by(self.model.id.asc()).offset(offset).limit(size).all()
- 
+
         return items, total
- 
+
     def update(self, obj_id: int, data: dict) -> Optional[ModelType]:
         db_obj = self.get_by_id(obj_id)
         if not db_obj:
             return None
+        data = dict(data)  # copy — apply_update_relations may mutate it
+        col_keys = {col.key for col in self.model.__table__.columns}
         for key, value in data.items():
-            setattr(db_obj, key, value)
+            if key in col_keys:
+                setattr(db_obj, key, value)
         self.apply_update_relations(db_obj, data)
         self.db.commit()
         self.db.refresh(db_obj)
         return db_obj
- 
+
     def soft_delete(self, obj_id: int) -> Optional[ModelType]:
         db_obj = self.get_by_id(obj_id)
         if not db_obj:

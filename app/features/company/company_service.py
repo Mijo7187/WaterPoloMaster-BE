@@ -10,11 +10,12 @@ class CompanyService(CrudService[Company]):
     def __init__(self, db: Session):
         super().__init__(db, CompanyRepository(db))
 
-    def create(self, schema: BaseModel) -> Company:
+    def create(self, schema: BaseModel, current_user=None) -> Company:
         from app.features.wallet.wallet_model import Wallet, WalletOwnerType
 
         data = schema.model_dump()
-        company = Company(**data)
+        col_keys = {col.key for col in Company.__table__.columns}
+        company = Company(**{k: v for k, v in data.items() if k in col_keys})
         self.db.add(company)
         self.db.flush()
 

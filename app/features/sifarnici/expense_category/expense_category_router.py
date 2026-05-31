@@ -10,7 +10,6 @@ from app.core.db.database import get_db
 from app.core.permissions import Permission, check_permissions
 from app.features.sifarnici.expense_category.expense_category_model import ExpenseCategory
 from app.features.sifarnici.expense_category.expense_category_schemas import (
-    ExpenseCategoryFilters,
     ExpenseCategoryResponse,
 )
 from app.features.sifarnici.expense_category.expense_category_service import ExpenseCategoryService

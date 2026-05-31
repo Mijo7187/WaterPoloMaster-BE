@@ -83,7 +83,7 @@ class Permission(str, enum.Enum):
     VIEW_INCOME_CATEGORIES = "VIEW_INCOME_CATEGORIES"
     VIEW_INCOME_CATEGORY = "VIEW_INCOME_CATEGORY"
 
-   
+
     # Wallet ledger
     VIEW_WALLET_LEDGER = "VIEW_WALLET_LEDGER"
 
@@ -129,7 +129,7 @@ ROLE_PERMISSIONS: dict[UserRole, list[Permission]] = {
         Permission.VIEW_EXPENSE_CATEGORY,
         Permission.VIEW_INCOME_CATEGORIES,
         Permission.VIEW_INCOME_CATEGORY,
-     
+
     ],
     #endregion Admin
     #region Super Admin — has ALL permissions

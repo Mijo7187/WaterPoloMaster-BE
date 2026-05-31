@@ -8,7 +8,6 @@
 # ============================================
 
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
 
 
 # ============================================
@@ -27,7 +26,7 @@ class LoginRequest(BaseModel):
     """
     email: EmailStr  # Email validation automatic
     password: str = Field(..., min_length=3)
-    
+
     # Configuration for Pydantic v2
     model_config = {
         "json_schema_extra": {
@@ -62,7 +61,7 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"  # Standard OAuth2 token type
-    
+
     model_config = {
         "json_schema_extra": {
             "examples": [
@@ -90,7 +89,7 @@ class RefreshTokenRequest(BaseModel):
     }
     """
     refresh_token: str = Field(..., description="Valid refresh token")
-    
+
     model_config = {
         "json_schema_extra": {
             "examples": [

@@ -23,7 +23,7 @@ if __name__ == "__main__":
     print(f"📡 Server: http://{settings.HOST}:{settings.PORT}")
     print(f"📚 API Docs: http://{settings.HOST}:{settings.PORT}/docs")
     print("=" * 50)
-    
+
     uvicorn.run(
         "app.main:app",  # Application location
         host=settings.HOST,

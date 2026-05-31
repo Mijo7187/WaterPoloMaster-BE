@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.db.database import get_db
 from app.core.api.exceptions import UnauthorizedException
 from app.core.api.responses import success_response
-from app.features.auth.auth_schemas import LoginRequest, TokenResponse, RefreshTokenRequest
+from app.features.auth.auth_schemas import LoginRequest, RefreshTokenRequest
 from app.features.auth.auth_service import AuthService
 from app.features.auth.auth_dependencies import get_current_active_user
 from app.features.users.users_models import User
@@ -75,20 +75,20 @@ async def login(
     """
     # Create auth service
     auth_service = AuthService(db)
-    
+
     # Authenticate user
     user = auth_service.authenticate_user(
         email=login_data.email,
         password=login_data.password
     )
-    
+
     # Check if authentication failed
     if not user:
         raise UnauthorizedException("Incorrect email or password")
-    
+
     # Create tokens
     tokens = auth_service.create_tokens(user)
-    
+
     # Return token response
     return success_response(
         data={
@@ -155,14 +155,14 @@ async def refresh_token(
     """
     # Create auth service
     auth_service = AuthService(db)
-    
+
     # Refresh tokens
     new_tokens = auth_service.refresh_access_token(refresh_data.refresh_token)
-    
+
     # Check if refresh failed
     if not new_tokens:
         raise UnauthorizedException("Invalid or expired refresh token")
-    
+
     # Return new tokens
     return success_response(
         data={
@@ -257,7 +257,7 @@ async def logout(
 # ============================================
 #
 # TYPICAL FLOW:
-# 
+#
 # 1. USER REGISTRATION (use /users endpoint):
 #    POST /users/
 #    {

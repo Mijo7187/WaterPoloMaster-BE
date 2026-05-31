@@ -23,9 +23,9 @@ Base = declarative_base()
 # USAGE EXAMPLE:
 # ============================================
 # In your models file:
-# 
+#
 # from app.core.db.base import Base
-# 
+#
 # class User(Base):
 #     __tablename__ = "users"
 #     id = Column(Integer, primary_key=True)

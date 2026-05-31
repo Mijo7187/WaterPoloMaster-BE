@@ -95,24 +95,24 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     """
     # Copy data to avoid modifying original
     to_encode = data.copy()
-    
+
     # Calculate expiration time
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         # Use default from settings (usually 30 minutes)
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
+
     # Add expiration to token data
     to_encode.update({"exp": expire})
-    
+
     # Create and return JWT token
     encoded_jwt = jwt.encode(
         to_encode,
         settings.SECRET_KEY,  # Secret key from .env
         algorithm=settings.ALGORITHM  # Usually "HS256"
     )
-    
+
     return encoded_jwt
 
 
@@ -141,7 +141,7 @@ def decode_access_token(token: str) -> Optional[Dict[str, Any]]:
             algorithms=[settings.ALGORITHM]
         )
         return payload
-    
+
     except JWTError:
         # Token is invalid (expired, tampered, etc.)
         return None
@@ -169,10 +169,10 @@ def get_user_email_from_token(token: str) -> Optional[str]:
         # email = "user@example.com"
     """
     payload = decode_access_token(token)
-    
+
     if payload is None:
         return None
-    
+
     # "sub" (subject) is the standard JWT field for user identifier
     email: str = payload.get("sub")
     return email
