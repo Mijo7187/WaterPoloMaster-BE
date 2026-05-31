@@ -1,0 +1,74 @@
+# ============================================
+# PYTHON GITIGNORE
+# ============================================
+# This file tells Git which files to ignore (not track)
+#
+# WHY? Because some files should NOT be in version control:
+# - Virtual environments (too large, can be recreated)
+# - Secret keys and passwords (.env file)
+# - Cache files (Python creates these automatically)
+# - Database files (might contain sensitive data)
+# ============================================
+
+# ============================================
+# VIRTUAL ENVIRONMENT
+# ============================================
+.venv/
+venv/
+ENV/
+env/
+.virtualenv/
+
+# ============================================
+# PYTHON CACHE
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# ============================================
+# ENVIRONMENT VARIABLES (SECRETS!)
+# ============================================
+.env
+.env.local
+.env.*.local
+
+# ============================================
+# DATABASE
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# IDE / EDITOR
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# ============================================
+# TESTING
+# ============================================
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# ============================================
+# BUILD / DISTRIBUTION
+# ============================================
+build/
+dist/
+*.egg-info/
+
+# ============================================
+# CLAUDE CODE - per-developer local overrides
+# ============================================
+CLAUDE.local.md
+.claude/
