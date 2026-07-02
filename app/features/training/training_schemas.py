@@ -2,67 +2,73 @@
 # TRAINING SCHEMAS - Data Validation
 # ============================================
 
-from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
-from typing import Optional, List
+from pydantic import ConfigDict, model_validator
+from datetime import date, time
+from typing import Optional
 
 from app.common.crud.crud_schemas import CrudCreateSchema, CrudFilters, CrudResponseSchema, CrudUpdateSchema
 from app.features.training.training_model import TrainingStatus
-from app.features.users.users_schemas import UserResponse
 from app.features.company.company_schemas import CompanyListResponse
+from app.features.sifarnici.training_type.training_type_schemas import TrainingTypeListResponse
 
 
 class TrainingCreate(CrudCreateSchema):
     company_id: int
-    start_training_date_time: datetime
-    end_training_date_time: datetime
+    pool_id: int
+    training_type_id: int
+    training_date: date
+    start_time: time
+    end_time: time
     price: int
-    payed: bool = False
     status: TrainingStatus = TrainingStatus.INCOMING
-    users_list: Optional[List[int]] = Field(None, description="List of user IDs")
     model_config = ConfigDict(from_attributes=True)
 
 
 class TrainingUpdate(CrudUpdateSchema):
     company_id: Optional[int] = None
-    start_training_date_time: Optional[datetime] = None
-    end_training_date_time: Optional[datetime] = None
+    pool_id: Optional[int] = None
+    training_type_id: Optional[int] = None
+    training_date: Optional[date] = None
+    start_time: Optional[time] = None
+    end_time: Optional[time] = None
     price: Optional[int] = None
-    payed: Optional[bool] = None
     status: Optional[TrainingStatus] = None
-    users_list: Optional[List[int]] = Field(None, description="List of user IDs")
     model_config = ConfigDict(from_attributes=True)
 
 
 class TrainingListResponse(CrudResponseSchema):
     """Lightweight schema for list view."""
 
-    
     company_id: int
-    start_training_date_time: datetime
-    end_training_date_time: datetime
+    training_date: date
+    start_time: time
+    end_time: time
     price: int
-    payed: bool
     status: TrainingStatus
+    number_of_players: int = 0
+    training_type_id: Optional[int] = None
     company: Optional[CompanyListResponse] = None
+    pool: Optional[CompanyListResponse] = None
+    training_type: Optional[TrainingTypeListResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class TrainingResponse(CrudResponseSchema):
-    """Full schema for get by id — includes nested users and pool."""
+    """Full schema for get by id — includes nested pool and player count."""
 
-    
     company_id: int
-    start_training_date_time: datetime
-    end_training_date_time: datetime
+    training_date: date
+    start_time: time
+    end_time: time
     price: int
-    payed: bool
     status: TrainingStatus
+    number_of_players: int = 0
+    training_type_id: Optional[int] = None
     company: Optional[CompanyListResponse] = None
     pool: Optional[CompanyListResponse] = None
-    users: List[UserResponse] = []
-    
+    training_type: Optional[TrainingTypeListResponse] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -74,6 +80,5 @@ class TrainingFilters(CrudFilters):
     """
     company_id: Optional[int] = None
     status: Optional[TrainingStatus] = None
-    payed: Optional[bool] = None
-    start_training_date_time__gte: Optional[datetime] = None
-    start_training_date_time__lte: Optional[datetime] = None
+    training_date__gte: Optional[date] = None
+    training_date__lte: Optional[date] = None

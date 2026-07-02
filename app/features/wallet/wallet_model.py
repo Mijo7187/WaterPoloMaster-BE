@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import Column, DateTime, Enum, Integer, UniqueConstraint, UUID
+from sqlalchemy import Column, DateTime, Enum, Integer, String, UniqueConstraint, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
@@ -23,6 +23,7 @@ class Wallet(Base):
     # Polymorphic — references users.id or company.id (both Integer PKs)
     owner_id = Column(Integer, nullable=False)
     owner_type = Column(Enum(WalletOwnerType), nullable=False)
+    name = Column(String(200), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     sent_payments = relationship(
@@ -31,6 +32,7 @@ class Wallet(Base):
     received_payments = relationship(
         "Payment", foreign_keys="Payment.receiver_wallet_id", back_populates="receiver_wallet"
     )
+
 
     def __repr__(self):
         return f"<Wallet(id={self.id}, owner_type={self.owner_type}, owner_id={self.owner_id})>"

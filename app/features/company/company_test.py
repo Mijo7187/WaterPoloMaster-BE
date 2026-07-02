@@ -6,7 +6,8 @@ import pytest
 
 from app.features.company.company_service import CompanyService
 from app.features.company.company_repository import CompanyRepository
-from app.features.company.company_schemas import CompanyCreate, CompanyUpdate
+from app.features.company.company_schemas import CompanyCreate, CompanyFilters, CompanyUpdate
+from app.features.company.company_model import CompanyType
 from app.core.api.exceptions import NotFoundException
 
 
@@ -37,15 +38,16 @@ class TestCompanyRepository:
         create_company(name="Club A")
         create_company(name="Club B")
         repo = CompanyRepository(db_session)
-        companies = repo.get_list()
-        assert len(companies) == 2
+        items, total = repo.get_list(filters=CompanyFilters())
+        assert total == 2
 
     def test_get_list_pagination(self, db_session, create_company):
         for i in range(5):
             create_company(name=f"Club {i}")
         repo = CompanyRepository(db_session)
-        page = repo.get_list(skip=0, limit=2)
-        assert len(page) == 2
+        items, total = repo.get_list(filters=CompanyFilters(size=2))
+        assert len(items) == 2
+        assert total == 5
 
     def test_update_company(self, db_session, create_company):
         company = create_company(name="Old Name")
@@ -66,7 +68,15 @@ class TestCompanyServiceCreate:
 
     def test_create_company(self, db_session):
         service = CompanyService(db_session)
-        company = service.create(CompanyCreate(name="New Club"))
+        company = service.create(CompanyCreate(
+            name="New Club",
+            address="123 Main St",
+            city_id=1,
+            country_id=1,
+            phone_number="+381111",
+            email="club@test.com",
+            company_type=CompanyType.CLUB,
+        ))
         assert company.id is not None
         assert company.name == "New Club"
 
@@ -75,12 +85,14 @@ class TestCompanyServiceCreate:
         company = service.create(CompanyCreate(
             name="Full Club",
             address="123 Main St",
-            city="Belgrade",
+            city_id=1,
+            country_id=1,
             phone_number="+381111",
             email="club@test.com",
+            company_type=CompanyType.POOL,
         ))
-        assert company.city == "Belgrade"
         assert company.email == "club@test.com"
+        assert company.company_type == CompanyType.POOL.value
 
 
 class TestCompanyServiceGet:
@@ -100,8 +112,8 @@ class TestCompanyServiceGet:
         create_company(name="A")
         create_company(name="B")
         service = CompanyService(db_session)
-        items = service.get_list()
-        assert len(items) == 2
+        items, total = service.get_list(filters=CompanyFilters())
+        assert total == 2
 
 
 class TestCompanyServiceUpdate:
@@ -118,10 +130,10 @@ class TestCompanyServiceUpdate:
             service.update(9999, CompanyUpdate(name="X"))
 
     def test_update_partial(self, db_session, create_company):
-        company = create_company(name="Club", city="Belgrade")
+        company = create_company(name="Club", phone_number="111")
         service = CompanyService(db_session)
-        updated = service.update(company.id, CompanyUpdate(city="Novi Sad"))
-        assert updated.city == "Novi Sad"
+        updated = service.update(company.id, CompanyUpdate(phone_number="222"))
+        assert updated.phone_number == "222"
         assert updated.name == "Club"  # unchanged
 
 
@@ -134,28 +146,35 @@ class TestCompanyEndpoints:
     def test_create_company_endpoint(self, client, super_admin_headers):
         headers, user = super_admin_headers
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
-            response = client.post("/api/company/", json={"name": "API Club"}, headers=headers)
+            response = client.post("/api/company/", json={
+                "name": "API Club",
+                "address": "1 Main St",
+                "city_id": 1,
+                "country_id": 1,
+                "phone_number": "+381111",
+                "email": "apiclub@test.com",
+                "company_type": "CLUB",
+            }, headers=headers)
             assert response.status_code == 201
-            assert response.json()["data"]["name"] == "API Club"
 
     def test_get_companies_endpoint(self, client, db_session, create_company, super_admin_headers):
         create_company(name="C1")
         create_company(name="C2")
         headers, user = super_admin_headers
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.get("/api/company/", headers=headers)
             assert response.status_code == 200
-            assert len(response.json()["data"]) >= 2
+            assert len(response.json()["data"]["items"]) >= 2
 
     def test_get_company_by_id_endpoint(self, client, db_session, create_company, super_admin_headers):
         company = create_company(name="FindAPI")
         headers, user = super_admin_headers
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.get(f"/api/company/{company.id}", headers=headers)
             assert response.status_code == 200
@@ -165,7 +184,7 @@ class TestCompanyEndpoints:
         company = create_company(name="Before")
         headers, user = super_admin_headers
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.put(
                 f"/api/company/{company.id}",

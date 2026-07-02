@@ -6,7 +6,7 @@ import pytest
 from datetime import date
 
 from app.features.users.users_service import UserService
-from app.features.users.users_schemas import UserCreate, UserUpdate
+from app.features.users.users_schemas import UserCreate, UserUpdate, UserFilters
 from app.features.users.users_repository import UserRepository
 from app.features.users.users_models import User, UserRole
 from app.core.api.exceptions import NotFoundException, ConflictException, BadRequestException
@@ -39,7 +39,7 @@ class TestUserRepository:
     def test_create_user(self, db_session, create_company):
         company = create_company()
         repo = UserRepository(db_session)
-        user = repo.create_user({
+        user = repo.create({
             "email": "repo@test.com",
             "username": "repouser",
             "hashed_password": "hashed",
@@ -57,13 +57,13 @@ class TestUserRepository:
         company = create_company()
         user = create_user(email="byid@test.com", company_id=company.id)
         repo = UserRepository(db_session)
-        found = repo.get_user_by_id(user.id)
+        found = repo.get_by_id(user.id)
         assert found is not None
         assert found.email == "byid@test.com"
 
     def test_get_user_by_id_not_found(self, db_session):
         repo = UserRepository(db_session)
-        assert repo.get_user_by_id(9999) is None
+        assert repo.get_by_id(9999) is None
 
     def test_get_user_by_email(self, db_session, create_company, create_user):
         company = create_company()
@@ -92,34 +92,35 @@ class TestUserRepository:
         create_user(email="u1@test.com", username="user1", company_id=company.id)
         create_user(email="u2@test.com", username="user2", company_id=company.id)
         repo = UserRepository(db_session)
-        users = repo.get_users_list(skip=0, limit=10)
-        assert len(users) == 2
+        users, total = repo.get_list(filters=UserFilters())
+        assert total == 2
 
     def test_get_users_list_pagination(self, db_session, create_company, create_user):
         company = create_company()
         for i in range(5):
             create_user(email=f"u{i}@test.com", username=f"user{i}", company_id=company.id)
         repo = UserRepository(db_session)
-        page = repo.get_users_list(skip=0, limit=2)
-        assert len(page) == 2
+        users, total = repo.get_list(filters=UserFilters(size=2))
+        assert len(users) == 2
+        assert total == 5
 
     def test_update_user(self, db_session, create_company, create_user):
         company = create_company()
         user = create_user(email="update@test.com", company_id=company.id)
         repo = UserRepository(db_session)
-        updated = repo.update_user(user.id, {"first_name": "Updated"})
+        updated = repo.update(user.id, {"first_name": "Updated"})
         assert updated.first_name == "Updated"
 
     def test_update_user_not_found(self, db_session):
         repo = UserRepository(db_session)
-        assert repo.update_user(9999, {"first_name": "X"}) is None
+        assert repo.update(9999, {"first_name": "X"}) is None
 
     def test_delete_user(self, db_session, create_company, create_user):
         company = create_company()
         user = create_user(email="delete@test.com", company_id=company.id)
         repo = UserRepository(db_session)
         assert repo.delete_user(user.id) is True
-        assert repo.get_user_by_id(user.id) is None
+        assert repo.get_by_id(user.id) is None
 
     def test_delete_user_not_found(self, db_session):
         repo = UserRepository(db_session)
@@ -129,7 +130,7 @@ class TestUserRepository:
         company = create_company()
         user = create_user(email="deactivate@test.com", company_id=company.id)
         repo = UserRepository(db_session)
-        deactivated = repo.deactivate_user(user.id)
+        deactivated = repo.soft_delete(user.id)
         assert deactivated.is_active is False
 
 
@@ -153,7 +154,7 @@ class TestUserServiceCreate:
             roles=[UserRole.USER],
             company_id=company.id,
         )
-        user = service.create_user(user_data)
+        user = service.create(user_data)
         assert user.id is not None
         assert user.email == "new@test.com"
         # Password should be hashed
@@ -164,7 +165,7 @@ class TestUserServiceCreate:
         create_user(email="dup@test.com", company_id=company.id)
         service = UserService(db_session)
         with pytest.raises(ConflictException) as exc_info:
-            service.create_user(UserCreate(
+            service.create(UserCreate(
                 email="dup@test.com",
                 username="different",
                 password="password123",
@@ -181,7 +182,7 @@ class TestUserServiceCreate:
         create_user(email="orig@test.com", username="taken", company_id=company.id)
         service = UserService(db_session)
         with pytest.raises(ConflictException) as exc_info:
-            service.create_user(UserCreate(
+            service.create(UserCreate(
                 email="unique@test.com",
                 username="taken",
                 password="password123",
@@ -200,13 +201,14 @@ class TestUserServiceGet:
         company = create_company()
         user = create_user(email="get@test.com", company_id=company.id)
         service = UserService(db_session)
-        found = service.get_user(user.id)
+        found = service.get_by_id(user.id)
         assert found is not None
         assert found.id == user.id
 
     def test_get_user_by_id_not_found(self, db_session):
         service = UserService(db_session)
-        assert service.get_user(9999) is None
+        with pytest.raises(NotFoundException):
+            service.get_by_id(9999)
 
     def test_get_user_by_email(self, db_session, create_company, create_user):
         company = create_company()
@@ -220,8 +222,8 @@ class TestUserServiceGet:
         create_user(email="list1@test.com", username="lu1", company_id=company.id)
         create_user(email="list2@test.com", username="lu2", company_id=company.id)
         service = UserService(db_session)
-        users = service.get_users_list()
-        assert len(users) == 2
+        users, total = service.get_list(filters=UserFilters())
+        assert total == 2
 
 
 class TestUserServiceUpdate:
@@ -230,19 +232,19 @@ class TestUserServiceUpdate:
         company = create_company()
         user = create_user(email="upd@test.com", company_id=company.id)
         service = UserService(db_session)
-        updated = service.update_user(user.id, UserUpdate(first_name="Updated"))
+        updated = service.update(user.id, UserUpdate(first_name="Updated"))
         assert updated.first_name == "Updated"
 
     def test_update_user_not_found(self, db_session):
         service = UserService(db_session)
         with pytest.raises(NotFoundException):
-            service.update_user(9999, UserUpdate(first_name="X"))
+            service.update(9999, UserUpdate(first_name="X"))
 
     def test_update_user_password_is_hashed(self, db_session, create_company, create_user):
         company = create_company()
         user = create_user(email="updpw@test.com", company_id=company.id)
         service = UserService(db_session)
-        updated = service.update_user(user.id, UserUpdate(password="newpassword123"))
+        updated = service.update(user.id, UserUpdate(password="newpassword123"))
         assert updated.hashed_password != "newpassword123"
 
     def test_update_user_duplicate_email(self, db_session, create_company, create_user):
@@ -251,14 +253,14 @@ class TestUserServiceUpdate:
         user2 = create_user(email="other@test.com", username="u2", company_id=company.id)
         service = UserService(db_session)
         with pytest.raises(ConflictException):
-            service.update_user(user2.id, UserUpdate(email="existing@test.com"))
+            service.update(user2.id, UserUpdate(email="existing@test.com"))
 
     def test_update_user_empty_field_rejected(self, db_session, create_company, create_user):
         company = create_company()
         user = create_user(email="empty@test.com", company_id=company.id)
         service = UserService(db_session)
         with pytest.raises(BadRequestException):
-            service.update_user(user.id, UserUpdate(first_name=""))
+            service.update(user.id, UserUpdate(first_name=""))
 
 
 class TestUserServiceDelete:
@@ -277,7 +279,7 @@ class TestUserServiceDelete:
         company = create_company()
         user = create_user(email="deact@test.com", company_id=company.id)
         service = UserService(db_session)
-        deactivated = service.deactivate_user(user.id)
+        deactivated = service.soft_delete(user.id)
         assert deactivated.is_active is False
 
 
@@ -327,39 +329,51 @@ class TestUserServicePassword:
 
 class TestCreateUserEndpoint:
 
-    def test_create_user_via_api(self, client, db_session, create_company):
+    def test_create_user_via_api(self, client, db_session, create_company, super_admin_headers):
         company = create_company()
-        response = client.post("/api/users/", json={
-            "email": "api@test.com",
-            "username": "apiuser",
-            "password": "password123",
-            "first_name": "API",
-            "last_name": "User",
-            "phone_number": "123456",
-            "date_of_birth": "2000-01-01",
-            "roles": ["USER"],
-            "company_id": company.id,
-        })
+        headers, _ = super_admin_headers
+        from unittest.mock import patch
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+            mock_get.return_value = headers["Authorization"].split(" ")[1]
+            response = client.post("/api/users/", json={
+                "email": "api@test.com",
+                "username": "apiuser",
+                "password": "password123",
+                "first_name": "API",
+                "last_name": "User",
+                "phone_number": "123456",
+                "date_of_birth": "2000-01-01",
+                "roles": ["USER"],
+                "company_id": company.id,
+            }, headers=headers)
         assert response.status_code == 201
         data = response.json()
         assert data["status"] == 201
 
-    def test_create_user_missing_required_fields(self, client):
-        response = client.post("/api/users/", json={
-            "email": "incomplete@test.com",
-        })
+    def test_create_user_missing_required_fields(self, client, super_admin_headers):
+        headers, _ = super_admin_headers
+        from unittest.mock import patch
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+            mock_get.return_value = headers["Authorization"].split(" ")[1]
+            response = client.post("/api/users/", json={
+                "email": "incomplete@test.com",
+            }, headers=headers)
         assert response.status_code == 422
 
-    def test_create_user_invalid_email(self, client):
-        response = client.post("/api/users/", json={
-            "email": "not-an-email",
-            "username": "test",
-            "password": "password123",
-            "first_name": "Test",
-            "last_name": "User",
-            "phone_number": "123",
-            "date_of_birth": "2000-01-01",
-        })
+    def test_create_user_invalid_email(self, client, super_admin_headers):
+        headers, _ = super_admin_headers
+        from unittest.mock import patch
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+            mock_get.return_value = headers["Authorization"].split(" ")[1]
+            response = client.post("/api/users/", json={
+                "email": "not-an-email",
+                "username": "test",
+                "password": "password123",
+                "first_name": "Test",
+                "last_name": "User",
+                "phone_number": "123",
+                "date_of_birth": "2000-01-01",
+            }, headers=headers)
         assert response.status_code == 422
 
 

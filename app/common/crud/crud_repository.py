@@ -143,7 +143,11 @@ class CrudRepository(Generic[ModelType]):
     # ── CRUD operations ─────────────────────────────
  
     def create(self, data: dict) -> ModelType:
-        db_obj = self.model(**data)
+        from sqlalchemy import inspect as sa_inspect
+        column_keys = {prop.key for prop in sa_inspect(self.model).mapper.iterate_properties
+                       if hasattr(prop, "columns")}
+        model_data = {k: v for k, v in data.items() if k in column_keys}
+        db_obj = self.model(**model_data)
         self.apply_create_relations(db_obj, data)
         self.db.add(db_obj)
         self.db.commit()
@@ -162,26 +166,35 @@ class CrudRepository(Generic[ModelType]):
         Pagination, filtering, and relation loading all handled here.
         model_dump happens here — service and router stay clean.
         """
-        # Extract pagination, filter rest
+        # Extract pagination and ordering, filter rest
         filter_dict = filters.model_dump(exclude_unset=True)
         page = filter_dict.pop("page", filters.page)
         size = filter_dict.pop("size", filters.size)
+        order_by_field = filter_dict.pop("order_by", None)
+        order_dir = filter_dict.pop("order_dir", "asc")
         offset = (page - 1) * size
- 
+
         q = self.db.query(self.model)
- 
+
         # Apply default relations
         for opt in self.get_list_relations():
             q = q.options(opt() if callable(opt) else opt)
- 
+
         # Apply filters
         for key, value in filter_dict.items():
             if value is None:
                 continue
             q = self._apply_filter(q, key, value)
- 
+
+        # Apply ordering
+        if order_by_field and hasattr(self.model, order_by_field):
+            col = getattr(self.model, order_by_field)
+            order_clause = col.desc() if order_dir == "desc" else col.asc()
+        else:
+            order_clause = self.model.id.asc()
+
         total = q.count()
-        items = q.order_by(self.model.id.asc()).offset(offset).limit(size).all()
+        items = q.order_by(order_clause).offset(offset).limit(size).all()
  
         return items, total
  

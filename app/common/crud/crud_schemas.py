@@ -54,6 +54,8 @@ class CrudFilters(BaseModel):
     created_at__lte: Optional[datetime] = None
     page: int = Field(default=1, ge=1)
     size: int = Field(default=20, ge=1, le=100)
+    order_by: Optional[str] = None
+    order_dir: str = Field(default="desc", pattern="^(asc|desc)$")
 
     def to_offset(self) -> int:
         return (self.page - 1) * self.size

@@ -27,6 +27,14 @@ from app.features.payment.payment_router import router as payment_router
 from app.features.sifarnici.payment_type.payment_type_router import router as payment_type_router
 from app.features.sifarnici.expense_category.expense_category_router import router as expense_category_router
 from app.features.sifarnici.income_category.income_category_router import router as income_category_router
+from app.features.sifarnici.training_type.training_type_router import router as training_type_router
+from app.features.sifarnici.swimming_discipline.swimming_discipline_router import router as swimming_discipline_router
+from app.features.training_users_list.training_users_list_router import router as training_users_list_router
+from app.features.quarter.quarter_router import router as quarter_router
+from app.features.quarter_users.quarter_users_router import router as quarter_users_router
+from app.features.tournament.tournament_router import router as tournament_router
+from app.features.tournament_users.tournament_users_router import router as tournament_users_router
+from app.scheduler.scheduler import init_scheduler, scheduler
 
 
 
@@ -82,7 +90,10 @@ def on_startup():
     
     # Create all database tables
     create_tables()
-    
+
+    # Start background scheduler (nightly training job at 23:59)
+    init_scheduler()
+
     print("✅ Application started successfully!")
     print(f"📚 API Documentation: http://{settings.HOST}:{settings.PORT}/docs")
 
@@ -99,6 +110,7 @@ def on_shutdown():
     - Close connections
     - Clean up resources
     """
+    scheduler.shutdown()
     print("👋 Shutting down WaterPoloMaster Backend...")
 
 
@@ -174,6 +186,48 @@ app.include_router(
 # Sifarnici - IncomeCategory
 app.include_router(
     income_category_router,
+    prefix="/api"
+)
+
+# Sifarnici - TrainingType
+app.include_router(
+    training_type_router,
+    prefix="/api"
+)
+
+# Sifarnici - SwimmingDiscipline
+app.include_router(
+    swimming_discipline_router,
+    prefix="/api"
+)
+
+# Training Users List
+app.include_router(
+    training_users_list_router,
+    prefix="/api"
+)
+
+# Quarter
+app.include_router(
+    quarter_router,
+    prefix="/api"
+)
+
+# Quarter Users
+app.include_router(
+    quarter_users_router,
+    prefix="/api"
+)
+
+# Tournament
+app.include_router(
+    tournament_router,
+    prefix="/api"
+)
+
+# Tournament Users
+app.include_router(
+    tournament_users_router,
     prefix="/api"
 )
 

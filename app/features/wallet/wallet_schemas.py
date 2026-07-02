@@ -12,6 +12,7 @@ from app.features.wallet.wallet_model import WalletOwnerType
 class WalletCreate(CrudCreateSchema):
     owner_id: int
     owner_type: WalletOwnerType
+    name: Optional[str] = None
 
 
 class WalletUpdate(CrudUpdateSchema):
@@ -22,6 +23,7 @@ class WalletResponse(CrudResponseSchema):
     id: uuid.UUID
     owner_id: int
     owner_type: WalletOwnerType
+    name: Optional[str] = None
     created_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 
