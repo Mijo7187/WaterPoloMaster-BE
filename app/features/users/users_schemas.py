@@ -56,6 +56,7 @@ class UserUpdate(CrudUpdateSchema):
     address_number: Optional[str] = None
     password: Optional[str] = Field(None, min_length=8, max_length=100)
     date_of_birth: Optional[date] = None
+    roles: Optional[List[UserRole]] = None
     company_id: Optional[int] = None
 
     @field_validator("date_of_birth", mode="before")
@@ -72,7 +73,9 @@ class UserListResponse(CrudResponseSchema):
     is_active: bool
     roles: List[UserRole]
     company_id: Optional[int] = None
-    created_at: datetime
+    phone_number: str
+    # date_of_birth: str
+    # created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
 

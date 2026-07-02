@@ -12,7 +12,7 @@
 # ============================================
 
 import pytest
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timezone
 from unittest.mock import MagicMock, patch
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -173,15 +173,38 @@ def create_user(db_session):
 
 
 @pytest.fixture()
-def create_training(db_session):
-    """Factory fixture to create a training in the DB."""
-    def _create(company_id, **kwargs):
+def create_training_type(db_session):
+    """Factory fixture to create a training type in the DB."""
+    def _create(company_id, name="Standard", **kwargs):
+        from app.features.sifarnici.training_type.training_type_model import TrainingType
+
+        training_type = TrainingType(name=name, company_id=company_id, **kwargs)
+        db_session.add(training_type)
+        db_session.commit()
+        db_session.refresh(training_type)
+        return training_type
+    return _create
+
+
+@pytest.fixture()
+def create_training(db_session, create_training_type):
+    """Factory fixture to create a training in the DB.
+
+    pool_id and training_type_id are NOT NULL on the model, so defaults are
+    supplied: the pool defaults to the training's own company, and a training
+    type is created on the fly when one isn't provided.
+    """
+    def _create(company_id, pool_id=None, training_type_id=None, **kwargs):
+        if training_type_id is None:
+            training_type_id = create_training_type(company_id=company_id).id
         defaults = {
-            "start_training_date_time": datetime(2026, 4, 1, 10, 0, tzinfo=timezone.utc),
-            "end_training_date_time": datetime(2026, 4, 1, 11, 0, tzinfo=timezone.utc),
+            "training_date": date(2026, 4, 1),
+            "start_time": time(10, 0),
+            "end_time": time(11, 0),
             "price": 100,
-            "payed": False,
             "status": TrainingStatus.INCOMING.value,
+            "pool_id": pool_id if pool_id is not None else company_id,
+            "training_type_id": training_type_id,
         }
         defaults.update(kwargs)
         training = Training(company_id=company_id, **defaults)

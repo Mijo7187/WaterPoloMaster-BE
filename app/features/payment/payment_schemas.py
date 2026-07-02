@@ -7,6 +7,8 @@ from pydantic import ConfigDict, Field
 
 from app.common.crud.crud_schemas import CrudCreateSchema, CrudFilters, CrudResponseSchema, CrudUpdateSchema
 from app.features.payment.payment_model import PaymentStatus
+from app.features.wallet.wallet_schemas import WalletResponse
+from app.features.sifarnici.payment_type.payment_type_schemas import PaymentTypeResponse
 
 
 class PaymentCreate(CrudCreateSchema):
@@ -31,6 +33,9 @@ class PaymentResponse(CrudResponseSchema):
     status: PaymentStatus
     description: Optional[str] = None
     created_at: Optional[datetime] = None
+    sender_wallet: Optional[WalletResponse] = None
+    receiver_wallet: Optional[WalletResponse] = None
+    payment_type: Optional[PaymentTypeResponse] = None
     model_config = ConfigDict(from_attributes=True)
 
 

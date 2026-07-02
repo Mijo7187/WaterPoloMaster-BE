@@ -20,6 +20,13 @@ from app.features.sifarnici.payment_type.payment_type_model import PaymentType  
 from app.features.payment.payment_model import Payment  # noqa: F401
 from app.features.sifarnici.expense_category.expense_category_model import ExpenseCategory  # noqa: F401
 from app.features.sifarnici.income_category.income_category_model import IncomeCategory  # noqa: F401
+from app.features.sifarnici.training_type.training_type_model import TrainingType  # noqa: F401
+from app.features.sifarnici.swimming_discipline.swimming_discipline_model import SwimmingDiscipline  # noqa: F401
+from app.features.training_users_list.training_users_list_model import TrainingUsersList  # noqa: F401
+from app.features.quarter.quarter_model import Quarter  # noqa: F401
+from app.features.quarter_users.quarter_users_model import QuarterUsers  # noqa: F401
+from app.features.tournament.tournament_model import Tournament  # noqa: F401
+from app.features.tournament_users.tournament_users_model import TournamentUsers  # noqa: F401
 
 # ─────────────────────────────────────────────────────────────
 

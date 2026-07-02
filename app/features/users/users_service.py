@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Any
 
 import bcrypt
 from pydantic import BaseModel
@@ -28,7 +28,7 @@ class UserService(CrudService[User]):
 
     # ── Overrides ────────────────────────────────────
 
-    def create(self, schema: UserCreate) -> User:
+    def create(self, schema: UserCreate, current_user: Optional[Any] = None) -> User:
         from app.features.wallet.wallet_model import Wallet, WalletOwnerType
 
         errors = []
@@ -54,7 +54,7 @@ class UserService(CrudService[User]):
         self.db.refresh(user)
         return user
 
-    def update(self, obj_id: int, schema: BaseModel) -> User:
+    def update(self, obj_id: int, schema: BaseModel, current_user: Optional[Any] = None) -> User:
         update_data = schema.model_dump(exclude_unset=True)
 
         errors = []
@@ -79,6 +79,9 @@ class UserService(CrudService[User]):
 
         if "password" in update_data:
             update_data["hashed_password"] = self.hash_password(update_data.pop("password"))
+
+        if "roles" in update_data:
+            update_data["roles"] = [r.value if hasattr(r, "value") else r for r in update_data["roles"]]
 
         obj = self.repository.update(obj_id, update_data)
         if not obj:

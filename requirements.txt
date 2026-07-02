@@ -38,6 +38,11 @@ python-dotenv==1.0.1  # Load environment variables from .env file
 email-validator==2.2.0  # Email validation support for Pydantic
 
 # ============================================
+# SCHEDULER - Background task scheduling
+# ============================================
+apscheduler==3.10.4  # In-process cron scheduler for nightly training jobs
+
+# ============================================
 # DEVELOPMENT TOOLS (Optional but recommended)
 # ============================================
 pytest==8.3.4  # Testing framework

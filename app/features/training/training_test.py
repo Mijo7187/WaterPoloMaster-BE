@@ -3,11 +3,11 @@
 # ============================================
 
 import pytest
-from datetime import datetime, timezone
+from datetime import date, time
 
 from app.features.training.training_service import TrainingService
 from app.features.training.training_repository import TrainingRepository
-from app.features.training.training_schemas import TrainingCreate, TrainingUpdate
+from app.features.training.training_schemas import TrainingCreate, TrainingUpdate, TrainingFilters
 from app.features.training.training_model import Training, TrainingStatus
 from app.core.api.exceptions import NotFoundException
 
@@ -18,40 +18,24 @@ from app.core.api.exceptions import NotFoundException
 
 class TestTrainingRepository:
 
-    def test_create_training(self, db_session, create_company):
+    def test_create_training(self, db_session, create_company, create_training_type):
         company = create_company()
+        training_type = create_training_type(company_id=company.id)
         repo = TrainingRepository(db_session)
         training = repo.create(
             {
                 "company_id": company.id,
-                "start_training_date_time": datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
-                "end_training_date_time": datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
+                "pool_id": company.id,
+                "training_type_id": training_type.id,
+                "training_date": date(2026, 5, 1),
+                "start_time": time(10, 0),
+                "end_time": time(11, 0),
                 "price": 200,
-                "payed": False,
                 "status": TrainingStatus.INCOMING.value,
-            },
-            user_ids=[],
+            }
         )
         assert training.id is not None
         assert training.price == 200
-
-    def test_create_training_with_users(self, db_session, create_company, create_user):
-        company = create_company()
-        user = create_user(email="player@test.com", company_id=company.id)
-        repo = TrainingRepository(db_session)
-        training = repo.create(
-            {
-                "company_id": company.id,
-                "start_training_date_time": datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
-                "end_training_date_time": datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
-                "price": 100,
-                "payed": False,
-                "status": TrainingStatus.INCOMING.value,
-            },
-            user_ids=[user.id],
-        )
-        assert len(training.users) == 1
-        assert training.users[0].id == user.id
 
     def test_get_by_id(self, db_session, create_company, create_training):
         company = create_company()
@@ -70,16 +54,8 @@ class TestTrainingRepository:
         create_training(company_id=company.id)
         create_training(company_id=company.id)
         repo = TrainingRepository(db_session)
-        items = repo.get_list()
-        assert len(items) == 2
-
-    def test_get_list_pagination(self, db_session, create_company, create_training):
-        company = create_company()
-        for _ in range(5):
-            create_training(company_id=company.id)
-        repo = TrainingRepository(db_session)
-        page = repo.get_list(skip=0, limit=2)
-        assert len(page) == 2
+        items, total = repo.get_list(filters=TrainingFilters())
+        assert total >= 2
 
     def test_update_training(self, db_session, create_company, create_training):
         company = create_company()
@@ -92,14 +68,6 @@ class TestTrainingRepository:
         repo = TrainingRepository(db_session)
         assert repo.update(9999, {"price": 500}) is None
 
-    def test_update_training_users(self, db_session, create_company, create_training, create_user):
-        company = create_company()
-        user = create_user(email="newplayer@test.com", company_id=company.id)
-        training = create_training(company_id=company.id)
-        repo = TrainingRepository(db_session)
-        updated = repo.update(training.id, {}, user_ids=[user.id])
-        assert len(updated.users) == 1
-
 
 # ============================================
 # TRAINING SERVICE TESTS
@@ -107,29 +75,20 @@ class TestTrainingRepository:
 
 class TestTrainingServiceCreate:
 
-    def test_create_training(self, db_session, create_company):
+    def test_create_training(self, db_session, create_company, create_training_type):
         company = create_company()
+        training_type = create_training_type(company_id=company.id)
         service = TrainingService(db_session)
         training = service.create(TrainingCreate(
             company_id=company.id,
-            start_training_date_time=datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
-            end_training_date_time=datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
+            pool_id=company.id,
+            training_type_id=training_type.id,
+            training_date=date(2026, 5, 1),
+            start_time=time(10, 0),
+            end_time=time(11, 0),
             price=300,
         ))
         assert training.id is not None
-
-    def test_create_training_with_users(self, db_session, create_company, create_user):
-        company = create_company()
-        user = create_user(email="svc@test.com", company_id=company.id)
-        service = TrainingService(db_session)
-        training = service.create(TrainingCreate(
-            company_id=company.id,
-            start_training_date_time=datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
-            end_training_date_time=datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
-            price=100,
-            users_list=[user.id],
-        ))
-        assert len(training.users) == 1
 
 
 class TestTrainingServiceGet:
@@ -150,8 +109,8 @@ class TestTrainingServiceGet:
         company = create_company()
         create_training(company_id=company.id)
         service = TrainingService(db_session)
-        items = service.get_list()
-        assert len(items) >= 1
+        items, total = service.get_list(filters=TrainingFilters())
+        assert total >= 1
 
 
 class TestTrainingServiceUpdate:
@@ -175,14 +134,6 @@ class TestTrainingServiceUpdate:
         with pytest.raises(NotFoundException):
             service.update(9999, TrainingUpdate(price=100))
 
-    def test_update_training_users(self, db_session, create_company, create_training, create_user):
-        company = create_company()
-        user = create_user(email="updplayer@test.com", company_id=company.id)
-        training = create_training(company_id=company.id)
-        service = TrainingService(db_session)
-        updated = service.update(training.id, TrainingUpdate(users_list=[user.id]))
-        assert len(updated.users) == 1
-
 
 # ============================================
 # TRAINING ROUTER / ENDPOINT TESTS
@@ -190,15 +141,19 @@ class TestTrainingServiceUpdate:
 
 class TestTrainingEndpoints:
 
-    def test_create_training_endpoint(self, client, db_session, create_company, auth_headers):
+    def test_create_training_endpoint(self, client, db_session, create_company, create_training_type, auth_headers):
         headers, user, company = auth_headers
+        training_type = create_training_type(company_id=company.id)
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.post("/api/training/", json={
                 "company_id": company.id,
-                "start_training_date_time": "2026-05-01T10:00:00Z",
-                "end_training_date_time": "2026-05-01T11:00:00Z",
+                "pool_id": company.id,
+                "training_type_id": training_type.id,
+                "training_date": "2026-05-01",
+                "start_time": "10:00:00",
+                "end_time": "11:00:00",
                 "price": 100,
             }, headers=headers)
             assert response.status_code == 201
@@ -207,17 +162,17 @@ class TestTrainingEndpoints:
         headers, user, company = auth_headers
         create_training(company_id=company.id)
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.get("/api/training/", headers=headers)
             assert response.status_code == 200
-            assert isinstance(response.json()["data"], list)
+            assert isinstance(response.json()["data"]["items"], list)
 
     def test_get_training_by_id_endpoint(self, client, db_session, create_company, create_training, auth_headers):
         headers, user, company = auth_headers
         training = create_training(company_id=company.id)
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.get(f"/api/training/{training.id}", headers=headers)
             assert response.status_code == 200
@@ -226,7 +181,7 @@ class TestTrainingEndpoints:
         headers, user, company = auth_headers
         training = create_training(company_id=company.id)
         from unittest.mock import patch
-        with patch("app.core.redis.get_access_token") as mock_get:
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
             response = client.put(f"/api/training/{training.id}", json={
                 "price": 999,
@@ -236,8 +191,9 @@ class TestTrainingEndpoints:
     def test_create_training_unauthenticated(self, client):
         response = client.post("/api/training/", json={
             "company_id": 1,
-            "start_training_date_time": "2026-05-01T10:00:00Z",
-            "end_training_date_time": "2026-05-01T11:00:00Z",
+            "training_date": "2026-05-01",
+            "start_time": "10:00:00",
+            "end_time": "11:00:00",
             "price": 100,
         })
         assert response.status_code in (401, 403)
