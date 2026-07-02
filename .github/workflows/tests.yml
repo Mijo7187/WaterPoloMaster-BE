@@ -10,6 +10,13 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    # Settings() requires these; tests use in-memory SQLite via conftest,
+    # so the values are placeholders just to satisfy config validation.
+    env:
+      APP_ENV: testing
+      DATABASE_URL: "sqlite:///./test.db"
+      SECRET_KEY: "test-secret-key"
+
     steps:
       - name: Check out code
         uses: actions/checkout@v4
