@@ -6,20 +6,20 @@ from sqlalchemy.orm import Session
 from app.core.api.responses import success_response
 from app.core.db.database import get_db
 from app.core.permissions import Permission, check_permissions
-from app.features.training_users_list.training_users_list_schemas import (
-    TrainingUsersListCreate,
-    TrainingUsersListFilters,
-    TrainingUsersListResponse,
+from app.features.training_users.training_users_schemas import (
+    TrainingUsersCreate,
+    TrainingUsersFilters,
+    TrainingUsersResponse,
 )
-from app.features.training_users_list.training_users_list_service import TrainingUsersListService
+from app.features.training_users.training_users_service import TrainingUsersService
 from app.features.users.users_schemas import UserListResponse
 
-router = APIRouter(prefix="/training-users-list", tags=["Training Users List"])
+router = APIRouter(prefix="/training-users", tags=["training-users"])
 
 
 @router.get(
     "/users-not-in-training",
-    dependencies=[Depends(check_permissions(Permission.VIEW_TRAINING_USERS_LIST))],
+    dependencies=[Depends(check_permissions(Permission.VIEW_TRAINING_USERS))],
 )
 def get_users_not_in_training(
     training_id: int = Query(...),
@@ -28,7 +28,7 @@ def get_users_not_in_training(
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
-    service = TrainingUsersListService(db)
+    service = TrainingUsersService(db)
     users, total = service.get_users_not_in_training(training_id, company_id, page, size)
     pages = math.ceil(total / size) if total else 0
     return success_response(data={
@@ -37,37 +37,37 @@ def get_users_not_in_training(
     })
 
 
-@router.get("/", dependencies=[Depends(check_permissions(Permission.VIEW_TRAINING_USERS_LIST))])
-def get_training_users_list(filters: TrainingUsersListFilters = Depends(), db: Session = Depends(get_db)):
-    service = TrainingUsersListService(db)
+@router.get("/", dependencies=[Depends(check_permissions(Permission.VIEW_TRAINING_USERS))])
+def get_training_users(filters: TrainingUsersFilters = Depends(), db: Session = Depends(get_db)):
+    service = TrainingUsersService(db)
     items, total = service.get_list(filters=filters)
     pages = math.ceil(total / filters.size) if total else 0
     return success_response(data={
-        "items": [TrainingUsersListResponse.model_validate(i).model_dump() for i in items],
+        "items": [TrainingUsersResponse.model_validate(i).model_dump() for i in items],
         "pagination": {"total": total, "page": filters.page, "size": filters.size, "pages": pages},
     })
 
 
-@router.get("/{item_id}", dependencies=[Depends(check_permissions(Permission.VIEW_TRAINING_USERS_LIST_ITEM))])
+@router.get("/{item_id}", dependencies=[Depends(check_permissions(Permission.VIEW_TRAINING_USERS_ITEM))])
 def get_training_user(item_id: int, db: Session = Depends(get_db)):
-    service = TrainingUsersListService(db)
+    service = TrainingUsersService(db)
     obj = service.get_by_id(item_id)
-    return success_response(data=TrainingUsersListResponse.model_validate(obj).model_dump())
+    return success_response(data=TrainingUsersResponse.model_validate(obj).model_dump())
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED,
-             dependencies=[Depends(check_permissions(Permission.CREATE_TRAINING_USERS_LIST))])
-def add_training_user(data: TrainingUsersListCreate, db: Session = Depends(get_db)):
-    service = TrainingUsersListService(db)
+             dependencies=[Depends(check_permissions(Permission.CREATE_TRAINING_USERS))])
+def add_training_user(data: TrainingUsersCreate, db: Session = Depends(get_db)):
+    service = TrainingUsersService(db)
     obj = service.create(data)
     return success_response(
-        data=TrainingUsersListResponse.model_validate(obj).model_dump(),
+        data=TrainingUsersResponse.model_validate(obj).model_dump(),
         messages=["User added to training"],
         status_code=201,
     )
 
 
-@router.delete("/{item_id}", dependencies=[Depends(check_permissions(Permission.DELETE_TRAINING_USERS_LIST))])
+@router.delete("/{item_id}", dependencies=[Depends(check_permissions(Permission.DELETE_TRAINING_USERS))])
 def remove_training_user(item_id: int, db: Session = Depends(get_db)):
-    TrainingUsersListService(db).delete(item_id)
+    TrainingUsersService(db).delete(item_id)
     return success_response(messages=["User removed from training"])

@@ -5,8 +5,8 @@ from sqlalchemy.sql import func
 from app.core.db.base import Base
 
 
-class TrainingUsersList(Base):
-    __tablename__ = "training_users_list"
+class TrainingUsers(Base):
+    __tablename__ = "training_users"
     __table_args__ = (UniqueConstraint("training_id", "user_id"),)
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
@@ -14,8 +14,8 @@ class TrainingUsersList(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    training = relationship("Training", back_populates="training_users_list")
+    training = relationship("Training", back_populates="training_users")
     user = relationship("User")
 
     def __repr__(self):
-        return f"<TrainingUsersList(training_id={self.training_id}, user_id={self.user_id})>"
+        return f"<TrainingUsers(training_id={self.training_id}, user_id={self.user_id})>"

@@ -3,8 +3,9 @@
 # ============================================
 
 import enum
+from datetime import date
 from sqlalchemy import (
-    Column, Integer, Numeric, DateTime, String, ForeignKey,
+    Column, Integer, Numeric, DateTime, String, ForeignKey, Enum,
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -22,6 +23,16 @@ class QuarterType(str, enum.Enum):
     Q4 = "Q4"
 
 
+def quarter_type_for_date(d: date) -> QuarterType:
+    """Map a calendar date to its quarter: Jan-Mar=Q1, Apr-Jun=Q2, Jul-Sep=Q3, Oct-Dec=Q4."""
+    return {
+        1: QuarterType.Q1, 2: QuarterType.Q1, 3: QuarterType.Q1,
+        4: QuarterType.Q2, 5: QuarterType.Q2, 6: QuarterType.Q2,
+        7: QuarterType.Q3, 8: QuarterType.Q3, 9: QuarterType.Q3,
+        10: QuarterType.Q4, 11: QuarterType.Q4, 12: QuarterType.Q4,
+    }[d.month]
+
+
 # ============================================
 # QUARTER MODEL
 # ============================================
@@ -30,7 +41,7 @@ class Quarter(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
-    quarter_type = Column(String(2), nullable=False)
+    quarter_type = Column(Enum(QuarterType, name="quartertype"), nullable=False)
     year = Column(Integer, nullable=False)
     waterpolo_price = Column(Numeric(10, 2), nullable=False)
     swimming_price = Column(Numeric(10, 2), nullable=False)
@@ -43,6 +54,7 @@ class Quarter(Base):
     # Relationships
     company = relationship("Company")
     quarter_users = relationship("QuarterUsers", back_populates="quarter")
+    payments = relationship("Payment", back_populates="quarter")
 
     @property
     def number_of_waterpolo_users(self) -> int:

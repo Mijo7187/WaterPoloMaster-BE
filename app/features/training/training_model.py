@@ -37,7 +37,7 @@ class Training(Base):
     price = Column(Numeric(10, 2), nullable=False)
     status = Column(String(20), default=TrainingStatus.INCOMING.value, nullable=False)
     pool_id = Column(Integer, ForeignKey("company.id"), nullable=False)
-    training_type_id = Column(Integer, ForeignKey("training_type.id"), nullable=False)
+    quarter_id = Column(Integer, ForeignKey("quarter.id"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -45,12 +45,23 @@ class Training(Base):
     # Relationships
     company = relationship("Company", foreign_keys=[company_id])
     pool = relationship("Company", foreign_keys=[pool_id])
-    training_type = relationship("TrainingType")
-    training_users_list = relationship("TrainingUsersList", back_populates="training")
+    quarter = relationship("Quarter")
+    training_users = relationship("TrainingUsers", back_populates="training")
+    payments = relationship("Payment", back_populates="training")
+    segments = relationship(
+        "TrainingSegment",
+        back_populates="training",
+        order_by="TrainingSegment.position",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def number_of_players(self) -> int:
-        return len(self.training_users_list or [])
+        return len(self.training_users or [])
+
+    @property
+    def quarter_type(self):
+        return self.quarter.quarter_type if self.quarter else None
 
     def __repr__(self):
         return f"<Training(id={self.id}, status='{self.status}')>"

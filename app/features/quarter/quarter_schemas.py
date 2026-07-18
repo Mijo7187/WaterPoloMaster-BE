@@ -71,3 +71,4 @@ class QuarterFilters(CrudFilters):
     quarter_type: Optional[QuarterType] = None
     year: Optional[int] = None
     company_id: Optional[int] = None
+    user_id: Optional[int] = None

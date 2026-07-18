@@ -1,28 +1,28 @@
 from sqlalchemy.orm import Session, selectinload
 
 from app.common.crud.crud_repository import CrudRepository
-from app.features.training_users_list.training_users_list_model import TrainingUsersList
+from app.features.training_users.training_users_model import TrainingUsers
 from app.features.users.users_models import User
 
 
-class TrainingUsersListRepository(CrudRepository[TrainingUsersList]):
+class TrainingUsersRepository(CrudRepository[TrainingUsers]):
     def __init__(self, db: Session):
-        super().__init__(db, TrainingUsersList)
+        super().__init__(db, TrainingUsers)
 
     def get_list_relations(self):
         return [
-            lambda: selectinload(TrainingUsersList.user),
+            lambda: selectinload(TrainingUsers.user),
         ]
 
     def get_by_id_relations(self):
         return [
-            lambda: selectinload(TrainingUsersList.user),
+            lambda: selectinload(TrainingUsers.user),
         ]
 
     def get_users_not_in_training(self, training_id: int, company_id: int, page: int = 1, size: int = 20):
         subq = (
-            self.db.query(TrainingUsersList.user_id)
-            .filter(TrainingUsersList.training_id == training_id)
+            self.db.query(TrainingUsers.user_id)
+            .filter(TrainingUsers.training_id == training_id)
             .subquery()
         )
         q = self.db.query(User).filter(

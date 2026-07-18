@@ -24,12 +24,11 @@ from app.features.company.company_router import router as company_router
 from app.features.training.training_router import router as training_router
 from app.features.wallet.wallet_router import router as wallet_router
 from app.features.payment.payment_router import router as payment_router
-from app.features.sifarnici.payment_type.payment_type_router import router as payment_type_router
 from app.features.sifarnici.expense_category.expense_category_router import router as expense_category_router
 from app.features.sifarnici.income_category.income_category_router import router as income_category_router
-from app.features.sifarnici.training_type.training_type_router import router as training_type_router
-from app.features.sifarnici.swimming_discipline.swimming_discipline_router import router as swimming_discipline_router
-from app.features.training_users_list.training_users_list_router import router as training_users_list_router
+from app.features.training_users.training_users_router import router as training_users_router
+from app.features.training_segments.training_segments_router import router as training_segments_router
+from app.features.sifarnici.exercise_option.exercise_option_router import router as exercise_option_router
 from app.features.quarter.quarter_router import router as quarter_router
 from app.features.quarter_users.quarter_users_router import router as quarter_users_router
 from app.features.tournament.tournament_router import router as tournament_router
@@ -165,12 +164,6 @@ app.include_router(
     prefix="/api"
 )
 
-# Sifarnici - PaymentType
-app.include_router(
-    payment_type_router,
-    prefix="/api"
-)
-
 # Payment
 app.include_router(
     payment_router,
@@ -189,21 +182,21 @@ app.include_router(
     prefix="/api"
 )
 
-# Sifarnici - TrainingType
+# Training Users
 app.include_router(
-    training_type_router,
+    training_users_router,
     prefix="/api"
 )
 
-# Sifarnici - SwimmingDiscipline
+# Training Segments
 app.include_router(
-    swimming_discipline_router,
+    training_segments_router,
     prefix="/api"
 )
 
-# Training Users List
+# Sifarnici - ExerciseOption
 app.include_router(
-    training_users_list_router,
+    exercise_option_router,
     prefix="/api"
 )
 

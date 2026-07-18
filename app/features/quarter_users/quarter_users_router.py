@@ -14,7 +14,7 @@ from app.features.quarter_users.quarter_users_schemas import (
 from app.features.quarter_users.quarter_users_service import QuarterUsersService
 from app.features.users.users_schemas import UserListResponse
 
-router = APIRouter(prefix="/quarter-users", tags=["Quarter Users"])
+router = APIRouter(prefix="/quarter-users", tags=["quarter-users"])
 
 
 @router.get(
@@ -40,10 +40,15 @@ def get_users_not_in_quarter(
 @router.get("/", dependencies=[Depends(check_permissions(Permission.VIEW_QUARTER_USERS))])
 def get_quarter_users(filters: QuarterUsersFilters = Depends(), db: Session = Depends(get_db)):
     service = QuarterUsersService(db)
-    items, total = service.get_list(filters=filters)
+    items, total = service.get_list_with_payment_status(filters)
     pages = math.ceil(total / filters.size) if total else 0
+    data_items = []
+    for row, payment_status in items:
+        resp = QuarterUsersResponse.model_validate(row)
+        resp.payment_status = payment_status
+        data_items.append(resp.model_dump())
     return success_response(data={
-        "items": [QuarterUsersResponse.model_validate(i).model_dump() for i in items],
+        "items": data_items,
         "pagination": {"total": total, "page": filters.page, "size": filters.size, "pages": pages},
     })
 

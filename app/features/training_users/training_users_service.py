@@ -3,20 +3,20 @@ from sqlalchemy.orm import Session
 from app.common.crud.crud_schemas import CrudCreateSchema
 from app.common.crud.crud_service import CrudService
 from app.core.api.exceptions import ConflictException, NotFoundException
-from app.features.training_users_list.training_users_list_model import TrainingUsersList
-from app.features.training_users_list.training_users_list_repository import TrainingUsersListRepository
+from app.features.training_users.training_users_model import TrainingUsers
+from app.features.training_users.training_users_repository import TrainingUsersRepository
 
 
-class TrainingUsersListService(CrudService[TrainingUsersList]):
+class TrainingUsersService(CrudService[TrainingUsers]):
     def __init__(self, db: Session):
-        super().__init__(db, TrainingUsersListRepository(db))
+        super().__init__(db, TrainingUsersRepository(db))
 
     def create(self, data: CrudCreateSchema, **kwargs):
         existing = (
-            self.db.query(TrainingUsersList)
+            self.db.query(TrainingUsers)
             .filter(
-                TrainingUsersList.training_id == data.training_id,
-                TrainingUsersList.user_id == data.user_id,
+                TrainingUsers.training_id == data.training_id,
+                TrainingUsers.user_id == data.user_id,
             )
             .first()
         )
@@ -25,7 +25,7 @@ class TrainingUsersListService(CrudService[TrainingUsersList]):
         return super().create(data, **kwargs)
 
     def delete(self, obj_id: int) -> None:
-        obj = self.db.get(TrainingUsersList, obj_id)
+        obj = self.db.get(TrainingUsers, obj_id)
         if not obj:
             raise NotFoundException("Training user entry not found")
         self.db.delete(obj)

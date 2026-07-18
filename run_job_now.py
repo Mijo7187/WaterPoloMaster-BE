@@ -12,8 +12,6 @@ import app.features.training.training_model
 import app.features.wallet.wallet_model
 import app.features.payment.payment_model
 import app.features.sifarnici.payment_type.payment_type_model
-import app.features.sifarnici.training_type.training_type_model
-import app.features.sifarnici.swimming_discipline.swimming_discipline_model
 import app.features.training_users_list.training_users_list_model
 
 from app.scheduler.training_jobs import run_nightly_training_job

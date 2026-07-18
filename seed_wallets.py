@@ -10,8 +10,6 @@ sys.path.insert(0, os.path.dirname(__file__))
 import app.features.sifarnici.country.country_model
 import app.features.sifarnici.city.city_model
 import app.features.sifarnici.payment_type.payment_type_model
-import app.features.sifarnici.training_type.training_type_model
-import app.features.sifarnici.swimming_discipline.swimming_discipline_model
 import app.features.sifarnici.expense_category.expense_category_model
 import app.features.sifarnici.income_category.income_category_model
 import app.features.wallet.wallet_model

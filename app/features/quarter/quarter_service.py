@@ -2,16 +2,40 @@
 # QUARTER SERVICE - Business Logic
 # ============================================
 
+from datetime import date
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
 from app.common.crud.crud_service import CrudService
 from app.common.crud.crud_schemas import CrudHooks
-from app.core.api.exceptions import ForbiddenException, NotFoundException
-from app.features.quarter.quarter_model import Quarter
+from app.core.api.exceptions import BadRequestException, ForbiddenException, NotFoundException
+from app.features.quarter.quarter_model import Quarter, quarter_type_for_date
 from app.features.quarter.quarter_repository import QuarterRepository
 from app.features.users.users_models import User, UserRole
+
+
+def resolve_quarter_id(db, company_id: int, d: date) -> int:
+    """
+    Resolve the quarter a training/tournament belongs to from its date.
+
+    Looks up the company's quarter matching the computed quarter_type + year.
+    Raises BadRequestException if no such quarter exists — quarters are created
+    explicitly by admins, not on the fly.
+    """
+    qtype = quarter_type_for_date(d)
+    quarter = (
+        db.query(Quarter)
+        .filter(
+            Quarter.quarter_type == qtype.value,
+            Quarter.year == d.year,
+            Quarter.company_id == company_id,
+        )
+        .first()
+    )
+    if not quarter:
+        raise BadRequestException("You have to add Quarter for this date")
+    return quarter.id
 
 
 def _convert_enums_on_create(data: dict, db, current_user: Optional[User] = None) -> dict:

@@ -25,6 +25,7 @@ from app.features.users.users_models import User, UserRole
 from app.features.company.company_model import Company
 from app.features.sifarnici.country.country_model import Country
 from app.features.training.training_model import Training, TrainingStatus
+from app.features.quarter.quarter_model import Quarter, QuarterType, quarter_type_for_date
 
 
 # ============================================
@@ -173,30 +174,63 @@ def create_user(db_session):
 
 
 @pytest.fixture()
-def create_training_type(db_session):
-    """Factory fixture to create a training type in the DB."""
-    def _create(company_id, name="Standard", **kwargs):
-        from app.features.sifarnici.training_type.training_type_model import TrainingType
-
-        training_type = TrainingType(name=name, company_id=company_id, **kwargs)
-        db_session.add(training_type)
+def create_quarter(db_session):
+    """Factory fixture to create a quarter in the DB."""
+    def _create(company_id, quarter_type=QuarterType.Q2, year=2026,
+                waterpolo_price=15000, swimming_price=6000, **kwargs):
+        quarter = Quarter(
+            quarter_type=quarter_type,
+            year=year,
+            waterpolo_price=waterpolo_price,
+            swimming_price=swimming_price,
+            company_id=company_id,
+            **kwargs,
+        )
+        db_session.add(quarter)
         db_session.commit()
-        db_session.refresh(training_type)
-        return training_type
+        db_session.refresh(quarter)
+        return quarter
     return _create
 
 
 @pytest.fixture()
-def create_training(db_session, create_training_type):
+def ensure_quarter(db_session):
+    """Find-or-create the quarter matching a company + date (used by factories)."""
+    def _ensure(company_id, d):
+        qtype = quarter_type_for_date(d)
+        quarter = (
+            db_session.query(Quarter)
+            .filter(
+                Quarter.quarter_type == qtype,
+                Quarter.year == d.year,
+                Quarter.company_id == company_id,
+            )
+            .first()
+        )
+        if quarter is None:
+            quarter = Quarter(
+                quarter_type=qtype,
+                year=d.year,
+                waterpolo_price=15000,
+                swimming_price=6000,
+                company_id=company_id,
+            )
+            db_session.add(quarter)
+            db_session.commit()
+            db_session.refresh(quarter)
+        return quarter
+    return _ensure
+
+
+@pytest.fixture()
+def create_training(db_session, ensure_quarter):
     """Factory fixture to create a training in the DB.
 
-    pool_id and training_type_id are NOT NULL on the model, so defaults are
-    supplied: the pool defaults to the training's own company, and a training
-    type is created on the fly when one isn't provided.
+    pool_id and quarter_id are NOT NULL on the model, so defaults are supplied:
+    the pool defaults to the training's own company, and the quarter matching the
+    training's date is found-or-created.
     """
-    def _create(company_id, pool_id=None, training_type_id=None, **kwargs):
-        if training_type_id is None:
-            training_type_id = create_training_type(company_id=company_id).id
+    def _create(company_id, pool_id=None, **kwargs):
         defaults = {
             "training_date": date(2026, 4, 1),
             "start_time": time(10, 0),
@@ -204,14 +238,28 @@ def create_training(db_session, create_training_type):
             "price": 100,
             "status": TrainingStatus.INCOMING.value,
             "pool_id": pool_id if pool_id is not None else company_id,
-            "training_type_id": training_type_id,
         }
         defaults.update(kwargs)
-        training = Training(company_id=company_id, **defaults)
+        quarter = ensure_quarter(company_id, defaults["training_date"])
+        training = Training(company_id=company_id, quarter_id=quarter.id, **defaults)
         db_session.add(training)
         db_session.commit()
         db_session.refresh(training)
         return training
+    return _create
+
+
+@pytest.fixture()
+def create_exercise_option(db_session):
+    """Factory fixture to create an exercise_option (sifarnik) in the DB."""
+    def _create(segment_type, code="freestyle", name="Freestyle", **kwargs):
+        from app.features.sifarnici.exercise_option.exercise_option_model import ExerciseOption
+
+        option = ExerciseOption(segment_type=segment_type, code=code, name=name, **kwargs)
+        db_session.add(option)
+        db_session.commit()
+        db_session.refresh(option)
+        return option
     return _create
 
 
