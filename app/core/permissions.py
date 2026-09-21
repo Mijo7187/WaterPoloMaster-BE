@@ -51,6 +51,11 @@ class Permission(str, enum.Enum):
     CREATE_COMPANY = "CREATE_COMPANY"
     UPDATE_COMPANY = "UPDATE_COMPANY"
 
+    # Academy membership — SUPER_ADMIN only (not listed under any other role)
+    VIEW_ACADEMY_COMPANIES = "VIEW_ACADEMY_COMPANIES"
+    CREATE_ACADEMY_COMPANY = "CREATE_ACADEMY_COMPANY"
+    DELETE_ACADEMY_COMPANY = "DELETE_ACADEMY_COMPANY"
+
     # Trainings
     VIEW_TRAININGS = "VIEW_TRAININGS"
     VIEW_TRAINING = "VIEW_TRAINING"
@@ -62,12 +67,6 @@ class Permission(str, enum.Enum):
     VIEW_WALLETS = "VIEW_WALLETS"
     CREATE_WALLET = "CREATE_WALLET"
     UPDATE_WALLET = "UPDATE_WALLET"
-
-    # Payment Type
-    VIEW_PAYMENT_TYPE = "VIEW_PAYMENT_TYPE"
-    VIEW_PAYMENT_TYPES = "VIEW_PAYMENT_TYPES"
-    CREATE_PAYMENT_TYPE = "CREATE_PAYMENT_TYPE"
-    UPDATE_PAYMENT_TYPE = "UPDATE_PAYMENT_TYPE"
 
     # Payment
     VIEW_PAYMENT = "VIEW_PAYMENT"
@@ -83,40 +82,67 @@ class Permission(str, enum.Enum):
     VIEW_INCOME_CATEGORIES = "VIEW_INCOME_CATEGORIES"
     VIEW_INCOME_CATEGORY = "VIEW_INCOME_CATEGORY"
 
-   
-    # Training Type
-    VIEW_TRAINING_TYPES = "VIEW_TRAINING_TYPES"
-    VIEW_TRAINING_TYPE = "VIEW_TRAINING_TYPE"
-    CREATE_TRAINING_TYPE = "CREATE_TRAINING_TYPE"
-    UPDATE_TRAINING_TYPE = "UPDATE_TRAINING_TYPE"
-
-    # Swimming Discipline
-    VIEW_SWIMMING_DISCIPLINES = "VIEW_SWIMMING_DISCIPLINES"
-    VIEW_SWIMMING_DISCIPLINE = "VIEW_SWIMMING_DISCIPLINE"
-    CREATE_SWIMMING_DISCIPLINE = "CREATE_SWIMMING_DISCIPLINE"
-    UPDATE_SWIMMING_DISCIPLINE = "UPDATE_SWIMMING_DISCIPLINE"
-
     # Wallet ledger
     VIEW_WALLET_LEDGER = "VIEW_WALLET_LEDGER"
 
-    # Training Users List
-    VIEW_TRAINING_USERS_LIST = "VIEW_TRAINING_USERS_LIST"
-    VIEW_TRAINING_USERS_LIST_ITEM = "VIEW_TRAINING_USERS_LIST_ITEM"
-    CREATE_TRAINING_USERS_LIST = "CREATE_TRAINING_USERS_LIST"
-    DELETE_TRAINING_USERS_LIST = "DELETE_TRAINING_USERS_LIST"
+    # Training Users
+    VIEW_TRAINING_USERS = "VIEW_TRAINING_USERS"
+    VIEW_TRAINING_USERS_ITEM = "VIEW_TRAINING_USERS_ITEM"
+    CREATE_TRAINING_USERS = "CREATE_TRAINING_USERS"
+    DELETE_TRAINING_USERS = "DELETE_TRAINING_USERS"
 
-    # Quarter
-    VIEW_QUARTERS = "VIEW_QUARTERS"
-    VIEW_QUARTER = "VIEW_QUARTER"
-    CREATE_QUARTER = "CREATE_QUARTER"
-    UPDATE_QUARTER = "UPDATE_QUARTER"
-    DELETE_QUARTER = "DELETE_QUARTER"
+    # Training Segments
+    VIEW_TRAINING_SEGMENT = "VIEW_TRAINING_SEGMENT"
+    CREATE_TRAINING_SEGMENT = "CREATE_TRAINING_SEGMENT"
+    UPDATE_TRAINING_SEGMENT = "UPDATE_TRAINING_SEGMENT"
+    DELETE_TRAINING_SEGMENT = "DELETE_TRAINING_SEGMENT"
 
-    # Quarter Users
-    VIEW_QUARTER_USERS = "VIEW_QUARTER_USERS"
-    VIEW_QUARTER_USER = "VIEW_QUARTER_USER"
-    CREATE_QUARTER_USER = "CREATE_QUARTER_USER"
-    DELETE_QUARTER_USER = "DELETE_QUARTER_USER"
+    # Exercise Option (sifarnik)
+    VIEW_EXERCISE_OPTIONS = "VIEW_EXERCISE_OPTIONS"
+    VIEW_EXERCISE_OPTION = "VIEW_EXERCISE_OPTION"
+    CREATE_EXERCISE_OPTION = "CREATE_EXERCISE_OPTION"
+    UPDATE_EXERCISE_OPTION = "UPDATE_EXERCISE_OPTION"
+
+    # Season
+    VIEW_SEASONS = "VIEW_SEASONS"
+    VIEW_SEASON = "VIEW_SEASON"
+    CREATE_SEASON = "CREATE_SEASON"
+    UPDATE_SEASON = "UPDATE_SEASON"
+    DELETE_SEASON = "DELETE_SEASON"
+
+    # Selection
+    VIEW_SELECTIONS = "VIEW_SELECTIONS"
+    VIEW_SELECTION = "VIEW_SELECTION"
+    CREATE_SELECTION = "CREATE_SELECTION"
+    UPDATE_SELECTION = "UPDATE_SELECTION"
+    DELETE_SELECTION = "DELETE_SELECTION"
+
+    # Season Selection User — which selection a user is in, per season
+    VIEW_SEASON_SELECTION_USERS = "VIEW_SEASON_SELECTION_USERS"
+    VIEW_SEASON_SELECTION_USER = "VIEW_SEASON_SELECTION_USER"
+    CREATE_SEASON_SELECTION_USER = "CREATE_SEASON_SELECTION_USER"
+    DELETE_SEASON_SELECTION_USER = "DELETE_SEASON_SELECTION_USER"
+
+    # Membership
+    VIEW_MEMBERSHIPS = "VIEW_MEMBERSHIPS"
+    VIEW_MEMBERSHIP = "VIEW_MEMBERSHIP"
+    CREATE_MEMBERSHIP = "CREATE_MEMBERSHIP"
+    UPDATE_MEMBERSHIP = "UPDATE_MEMBERSHIP"
+    DELETE_MEMBERSHIP = "DELETE_MEMBERSHIP"
+
+    # Contract
+    VIEW_CONTRACTS = "VIEW_CONTRACTS"
+    VIEW_CONTRACT = "VIEW_CONTRACT"
+    CREATE_CONTRACT = "CREATE_CONTRACT"
+    UPDATE_CONTRACT = "UPDATE_CONTRACT"
+    DELETE_CONTRACT = "DELETE_CONTRACT"
+
+    # Contract Installment
+    VIEW_CONTRACT_INSTALLMENTS = "VIEW_CONTRACT_INSTALLMENTS"
+    VIEW_CONTRACT_INSTALLMENT = "VIEW_CONTRACT_INSTALLMENT"
+    CREATE_CONTRACT_INSTALLMENT = "CREATE_CONTRACT_INSTALLMENT"
+    UPDATE_CONTRACT_INSTALLMENT = "UPDATE_CONTRACT_INSTALLMENT"
+    DELETE_CONTRACT_INSTALLMENT = "DELETE_CONTRACT_INSTALLMENT"
 
     # Tournament
     VIEW_TOURNAMENTS = "VIEW_TOURNAMENTS"
@@ -142,6 +168,50 @@ ROLE_PERMISSIONS: dict[UserRole, list[Permission]] = {
         Permission.VIEW_USER,
     ],
     #endregion User
+    #region Player
+    UserRole.PLAYER: [
+        Permission.VIEW_USERS,
+        Permission.VIEW_USER,
+    ],
+    #endregion Player
+    #region Coach
+    UserRole.COACH: [
+        Permission.VIEW_USERS,
+        Permission.VIEW_USER,
+        Permission.VIEW_COMPANY,
+        Permission.VIEW_COMPANIES,
+        Permission.VIEW_TRAININGS,
+        Permission.VIEW_TRAINING,
+        Permission.CREATE_TRAINING,
+        Permission.UPDATE_TRAINING,
+        Permission.VIEW_TRAINING_USERS,
+        Permission.VIEW_TRAINING_USERS_ITEM,
+        Permission.CREATE_TRAINING_USERS,
+        Permission.DELETE_TRAINING_USERS,
+        Permission.VIEW_TRAINING_SEGMENT,
+        Permission.CREATE_TRAINING_SEGMENT,
+        Permission.UPDATE_TRAINING_SEGMENT,
+        Permission.DELETE_TRAINING_SEGMENT,
+        Permission.VIEW_EXERCISE_OPTIONS,
+        Permission.VIEW_EXERCISE_OPTION,
+        Permission.CREATE_EXERCISE_OPTION,
+        Permission.UPDATE_EXERCISE_OPTION,
+        Permission.VIEW_SEASONS,
+        Permission.VIEW_SEASON,
+        Permission.VIEW_SELECTIONS,
+        Permission.VIEW_SELECTION,
+        Permission.VIEW_SEASON_SELECTION_USERS,
+        Permission.VIEW_SEASON_SELECTION_USER,
+        Permission.VIEW_TOURNAMENTS,
+        Permission.VIEW_TOURNAMENT,
+        Permission.CREATE_TOURNAMENT,
+        Permission.UPDATE_TOURNAMENT,
+        Permission.VIEW_TOURNAMENT_USERS,
+        Permission.VIEW_TOURNAMENT_USER,
+        Permission.CREATE_TOURNAMENT_USER,
+        Permission.DELETE_TOURNAMENT_USER,
+    ],
+    #endregion Coach
     #region Admin
     UserRole.ADMIN: [
         Permission.VIEW_USERS,
@@ -167,35 +237,53 @@ ROLE_PERMISSIONS: dict[UserRole, list[Permission]] = {
         Permission.VIEW_WALLET,
         Permission.VIEW_WALLETS,
         Permission.VIEW_WALLET_LEDGER,
-        Permission.VIEW_PAYMENT_TYPE,
-        Permission.VIEW_PAYMENT_TYPES,
         Permission.VIEW_PAYMENT,
         Permission.VIEW_PAYMENTS,
         Permission.VIEW_EXPENSE_CATEGORIES,
         Permission.VIEW_EXPENSE_CATEGORY,
         Permission.VIEW_INCOME_CATEGORIES,
         Permission.VIEW_INCOME_CATEGORY,
-        Permission.VIEW_TRAINING_TYPES,
-        Permission.VIEW_TRAINING_TYPE,
-        Permission.CREATE_TRAINING_TYPE,
-        Permission.UPDATE_TRAINING_TYPE,
-        Permission.VIEW_SWIMMING_DISCIPLINES,
-        Permission.VIEW_SWIMMING_DISCIPLINE,
-        Permission.CREATE_SWIMMING_DISCIPLINE,
-        Permission.UPDATE_SWIMMING_DISCIPLINE,
-        Permission.VIEW_TRAINING_USERS_LIST,
-        Permission.VIEW_TRAINING_USERS_LIST_ITEM,
-        Permission.CREATE_TRAINING_USERS_LIST,
-        Permission.DELETE_TRAINING_USERS_LIST,
-        Permission.VIEW_QUARTERS,
-        Permission.VIEW_QUARTER,
-        Permission.CREATE_QUARTER,
-        Permission.UPDATE_QUARTER,
-        Permission.DELETE_QUARTER,
-        Permission.VIEW_QUARTER_USERS,
-        Permission.VIEW_QUARTER_USER,
-        Permission.CREATE_QUARTER_USER,
-        Permission.DELETE_QUARTER_USER,
+        Permission.VIEW_TRAINING_USERS,
+        Permission.VIEW_TRAINING_USERS_ITEM,
+        Permission.CREATE_TRAINING_USERS,
+        Permission.DELETE_TRAINING_USERS,
+        Permission.VIEW_TRAINING_SEGMENT,
+        Permission.CREATE_TRAINING_SEGMENT,
+        Permission.UPDATE_TRAINING_SEGMENT,
+        Permission.DELETE_TRAINING_SEGMENT,
+        Permission.VIEW_EXERCISE_OPTIONS,
+        Permission.VIEW_EXERCISE_OPTION,
+        Permission.CREATE_EXERCISE_OPTION,
+        Permission.UPDATE_EXERCISE_OPTION,
+        Permission.VIEW_SEASONS,
+        Permission.VIEW_SEASON,
+        Permission.CREATE_SEASON,
+        Permission.UPDATE_SEASON,
+        Permission.DELETE_SEASON,
+        Permission.VIEW_SELECTIONS,
+        Permission.VIEW_SELECTION,
+        Permission.CREATE_SELECTION,
+        Permission.UPDATE_SELECTION,
+        Permission.DELETE_SELECTION,
+        Permission.VIEW_SEASON_SELECTION_USERS,
+        Permission.VIEW_SEASON_SELECTION_USER,
+        Permission.CREATE_SEASON_SELECTION_USER,
+        Permission.DELETE_SEASON_SELECTION_USER,
+        Permission.VIEW_MEMBERSHIPS,
+        Permission.VIEW_MEMBERSHIP,
+        Permission.CREATE_MEMBERSHIP,
+        Permission.UPDATE_MEMBERSHIP,
+        Permission.DELETE_MEMBERSHIP,
+        Permission.VIEW_CONTRACTS,
+        Permission.VIEW_CONTRACT,
+        Permission.CREATE_CONTRACT,
+        Permission.UPDATE_CONTRACT,
+        Permission.DELETE_CONTRACT,
+        Permission.VIEW_CONTRACT_INSTALLMENTS,
+        Permission.VIEW_CONTRACT_INSTALLMENT,
+        Permission.CREATE_CONTRACT_INSTALLMENT,
+        Permission.UPDATE_CONTRACT_INSTALLMENT,
+        Permission.DELETE_CONTRACT_INSTALLMENT,
         Permission.VIEW_TOURNAMENTS,
         Permission.VIEW_TOURNAMENT,
         Permission.CREATE_TOURNAMENT,
@@ -211,6 +299,14 @@ ROLE_PERMISSIONS: dict[UserRole, list[Permission]] = {
     UserRole.SUPER_ADMIN: list(Permission),
     #endregion Super Admin
 }
+
+
+# ============================================
+# ROLE HELPERS
+# ============================================
+def is_super_admin(user) -> bool:
+    """SUPER_ADMIN bypasses company scoping everywhere."""
+    return user is not None and UserRole.SUPER_ADMIN.value in (user.roles or [])
 
 
 # ============================================

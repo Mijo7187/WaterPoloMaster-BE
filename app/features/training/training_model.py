@@ -10,6 +10,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.db.base import Base
+from app.utils.dateUtils import quarter_type_for_date
 
 
 # ============================================
@@ -37,7 +38,7 @@ class Training(Base):
     price = Column(Numeric(10, 2), nullable=False)
     status = Column(String(20), default=TrainingStatus.INCOMING.value, nullable=False)
     pool_id = Column(Integer, ForeignKey("company.id"), nullable=False)
-    training_type_id = Column(Integer, ForeignKey("training_type.id"), nullable=False)
+    season_id = Column(Integer, ForeignKey("season.id"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -45,12 +46,24 @@ class Training(Base):
     # Relationships
     company = relationship("Company", foreign_keys=[company_id])
     pool = relationship("Company", foreign_keys=[pool_id])
-    training_type = relationship("TrainingType")
-    training_users_list = relationship("TrainingUsersList", back_populates="training")
+    season = relationship("Season")
+    training_users = relationship("TrainingUsers", back_populates="training")
+    segments = relationship(
+        "TrainingSegment",
+        back_populates="training",
+        order_by="TrainingSegment.position",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def number_of_players(self) -> int:
-        return len(self.training_users_list or [])
+        return len(self.training_users or [])
+
+    @property
+    def quarter_type(self):
+        """Calendar quarter label, derived from the date. There is no quarter
+        table any more — the billing period is `season`."""
+        return quarter_type_for_date(self.training_date) if self.training_date else None
 
     def __repr__(self):
         return f"<Training(id={self.id}, status='{self.status}')>"

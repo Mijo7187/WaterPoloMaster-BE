@@ -15,6 +15,8 @@ from app.common.crud.crud_schemas import CrudEndpointConfig, CrudListEndpointCon
 from app.core.api.responses import success_response
 from app.core.db.database import get_db
 from app.core.permissions import Permission, check_permissions
+from app.features.auth.auth_dependencies import get_current_active_user
+from app.features.users.users_models import User
 from app.features.tournament.tournament_schemas import (
     TournamentCreate,
     TournamentFilters,
@@ -45,6 +47,7 @@ router = create_crud_router(
         filters=TournamentFilters,
         dependencies=[Depends(check_permissions(Permission.VIEW_TOURNAMENTS))],
     ),
+    scope_by_company=True,
 )
 
 
@@ -52,6 +55,12 @@ router = create_crud_router(
     "/{item_id}",
     dependencies=[Depends(check_permissions(Permission.DELETE_TOURNAMENT))],
 )
-def delete_tournament(item_id: int, db: Session = Depends(get_db)):
-    TournamentService(db).delete(item_id)
+def delete_tournament(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    service = TournamentService(db)
+    service.enforce_company_scope(item_id, current_user)
+    service.delete(item_id)
     return success_response(messages=["tournament deleted"])

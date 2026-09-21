@@ -47,6 +47,7 @@ def create_crud_router(
     get_list_conf: CrudListEndpointConfig,
     enable_soft_delete: bool = False,
     deactivate_dependencies: List[Any] = [],
+    scope_by_company: bool = False,
 ) -> APIRouter:
     """
     Build and return an APIRouter with standard CRUD endpoints.
@@ -61,7 +62,11 @@ def create_crud_router(
         get_list_conf:           Config for GET / (schema, filters, dependencies)
         enable_soft_delete:      Whether to generate POST /{id}/deactivate
         deactivate_dependencies: Dependencies for the deactivate endpoint
- 
+        scope_by_company:        Restrict non-SUPER_ADMIN users to their own company:
+                                 list is filtered by company_id, get/update/deactivate
+                                 of another company's row → 404, create/update with
+                                 another company_id → 403. Model must have company_id.
+
     Notes:
         - load_relations is now defined in the repository (default_relations method)
         - Filters use field__operator convention (e.g. name__ilike, created_at__gte)
@@ -88,6 +93,8 @@ def create_crud_router(
         current_user: User = Depends(get_current_active_user),
     ):
         service = service_factory(db)
+        if scope_by_company:
+            service.enforce_company_in_data(data.model_dump(), current_user)
         obj = service.create(data, current_user=current_user)
         return success_response(
             data={obj.id},
@@ -106,9 +113,15 @@ def create_crud_router(
     def get_list(
         filters: filter_schema = Depends(),
         db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_active_user),
     ):
         service = service_factory(db)
-        items, total = service.get_list(filters=filters)
+        if scope_by_company:
+            items, total = service.get_list(
+                filters=filters, company_id=service.company_scope_for(current_user)
+            )
+        else:
+            items, total = service.get_list(filters=filters)
         pages = math.ceil(total / filters.size) if total else 0
  
         return success_response(
@@ -132,8 +145,11 @@ def create_crud_router(
     def get_by_id(
         item_id: int,
         db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_active_user),
     ):
         service = service_factory(db)
+        if scope_by_company:
+            service.enforce_company_read(item_id, current_user)
         obj = service.get_by_id(item_id)
         return success_response(
             data=get_by_id_conf.schema.model_validate(obj).model_dump(),
@@ -152,6 +168,9 @@ def create_crud_router(
         current_user: User = Depends(get_current_active_user),
     ):
         service = service_factory(db)
+        if scope_by_company:
+            service.enforce_company_scope(item_id, current_user)
+            service.enforce_company_in_data(data.model_dump(exclude_unset=True), current_user)
         obj = service.update(item_id, data, current_user=current_user)
         return success_response(
             data=get_by_id_conf.schema.model_validate(obj).model_dump(),
@@ -168,8 +187,11 @@ def create_crud_router(
         def deactivate(
             item_id: int,
             db: Session = Depends(get_db),
+            current_user: User = Depends(get_current_active_user),
         ):
             service = service_factory(db)
+            if scope_by_company:
+                service.enforce_company_scope(item_id, current_user)
             obj = service.soft_delete(item_id)
             return success_response(
                 data=get_by_id_conf.schema.model_validate(obj).model_dump(),

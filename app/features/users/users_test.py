@@ -350,6 +350,15 @@ class TestCreateUserEndpoint:
         data = response.json()
         assert data["status"] == 201
 
+        from app.features.users.users_models import User
+        from app.features.wallet.wallet_model import Wallet, WalletOwnerType
+        user = db_session.query(User).filter(User.email == "api@test.com").one()
+        wallet = db_session.query(Wallet).filter(
+            Wallet.owner_id == user.id, Wallet.owner_type == WalletOwnerType.USER
+        ).one()
+        assert user.w_id == wallet.id
+        assert wallet.name == "API User"
+
     def test_create_user_missing_required_fields(self, client, super_admin_headers):
         headers, _ = super_admin_headers
         from unittest.mock import patch
@@ -359,6 +368,41 @@ class TestCreateUserEndpoint:
                 "email": "incomplete@test.com",
             }, headers=headers)
         assert response.status_code == 422
+
+    def test_create_user_missing_company_id(self, client, super_admin_headers):
+        headers, _ = super_admin_headers
+        from unittest.mock import patch
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+            mock_get.return_value = headers["Authorization"].split(" ")[1]
+            response = client.post("/api/users/", json={
+                "email": "nocompany@test.com",
+                "username": "nocompany",
+                "password": "password123",
+                "first_name": "No",
+                "last_name": "Company",
+                "phone_number": "123456",
+                "date_of_birth": "2000-01-01",
+                "roles": ["COACH"],
+            }, headers=headers)
+        assert response.status_code == 422
+
+    def test_create_user_unknown_company_id(self, client, super_admin_headers):
+        headers, _ = super_admin_headers
+        from unittest.mock import patch
+        with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+            mock_get.return_value = headers["Authorization"].split(" ")[1]
+            response = client.post("/api/users/", json={
+                "email": "badcompany@test.com",
+                "username": "badcompany",
+                "password": "password123",
+                "first_name": "Bad",
+                "last_name": "Company",
+                "phone_number": "123456",
+                "date_of_birth": "2000-01-01",
+                "roles": ["COACH"],
+                "company_id": 999999,
+            }, headers=headers)
+        assert response.status_code == 400
 
     def test_create_user_invalid_email(self, client, super_admin_headers):
         headers, _ = super_admin_headers
@@ -377,15 +421,112 @@ class TestCreateUserEndpoint:
         assert response.status_code == 422
 
 
+def _call(client, method, url, headers, **kwargs):
+    from unittest.mock import patch
+    with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+        mock_get.return_value = headers["Authorization"].split(" ")[1]
+        return getattr(client, method)(url, headers=headers, **kwargs)
+
+
 class TestGetUsersEndpoint:
 
-    def test_get_user_by_id_via_api(self, client, db_session, create_company, create_user):
-        company = create_company()
-        user = create_user(email="getapi@test.com", company_id=company.id)
-        response = client.get(f"/api/users/{user.id}")
+    def test_get_user_by_id_via_api(self, client, create_user, auth_headers):
+        headers, _, company = auth_headers
+        user = create_user(email="getapi@test.com", username="getapi", company_id=company.id)
+        response = _call(client, "get", f"/api/users/{user.id}", headers)
         assert response.status_code == 200
         assert response.json()["data"]["email"] == "getapi@test.com"
 
-    def test_get_user_not_found(self, client):
-        response = client.get("/api/users/99999")
+    def test_get_user_not_found(self, client, auth_headers):
+        headers, _, _ = auth_headers
+        response = _call(client, "get", "/api/users/99999", headers)
         assert response.status_code == 404
+
+    def test_get_user_unauthenticated(self, client):
+        response = client.get("/api/users/1")
+        assert response.status_code in (401, 403)
+
+
+class TestUsersCompanyScope:
+    """Non-SUPER_ADMIN users only see and manage users of their own company."""
+
+    def _other_company_user(self, create_company, create_user):
+        other = create_company(name="Other Club")
+        return other, create_user(email="other@test.com", username="other", company_id=other.id)
+
+    def test_list_only_own_company(self, client, create_company, create_user, auth_headers):
+        headers, admin, company = auth_headers
+        create_user(email="mine@test.com", username="mine", company_id=company.id)
+        self._other_company_user(create_company, create_user)
+
+        response = _call(client, "get", "/api/users/", headers)
+        assert response.status_code == 200
+        items = response.json()["data"]["items"]
+        assert {i["company_id"] for i in items} == {company.id}
+        assert "other@test.com" not in {i["email"] for i in items}
+
+    def test_list_company_filter_cannot_widen_scope(self, client, create_company, create_user, auth_headers):
+        headers, _, _ = auth_headers
+        other, _ = self._other_company_user(create_company, create_user)
+
+        response = _call(client, "get", f"/api/users/?company_id={other.id}", headers)
+        assert response.status_code == 200
+        assert response.json()["data"]["items"] == []
+
+    def test_get_other_company_user_403(self, client, create_company, create_user, auth_headers):
+        headers, _, _ = auth_headers
+        _, other_user = self._other_company_user(create_company, create_user)
+
+        response = _call(client, "get", f"/api/users/{other_user.id}", headers)
+        assert response.status_code == 403
+
+    def test_update_other_company_user_403(self, client, create_company, create_user, auth_headers):
+        headers, _, _ = auth_headers
+        _, other_user = self._other_company_user(create_company, create_user)
+
+        response = _call(client, "put", f"/api/users/{other_user.id}", headers, json={"first_name": "Hacked"})
+        assert response.status_code == 403
+
+    def test_deactivate_other_company_user_403(self, client, create_company, create_user, auth_headers):
+        headers, _, _ = auth_headers
+        _, other_user = self._other_company_user(create_company, create_user)
+
+        response = _call(client, "post", f"/api/users/{other_user.id}/deactivate", headers)
+        assert response.status_code == 403
+
+    def test_delete_other_company_user_403(self, client, db_session, create_company, create_user, auth_headers):
+        headers, _, _ = auth_headers
+        _, other_user = self._other_company_user(create_company, create_user)
+
+        response = _call(client, "delete", f"/api/users/{other_user.id}", headers)
+        assert response.status_code == 403
+        assert db_session.get(User, other_user.id) is not None
+
+    def test_create_user_in_other_company_403(self, client, create_company, auth_headers):
+        headers, _, _ = auth_headers
+        other = create_company(name="Other Club")
+
+        response = _call(client, "post", "/api/users/", headers, json={
+            "email": "new@test.com",
+            "username": "newuser",
+            "password": "password123",
+            "first_name": "New",
+            "last_name": "User",
+            "phone_number": "123456",
+            "date_of_birth": "2000-01-01",
+            "roles": ["USER"],
+            "company_id": other.id,
+        })
+        assert response.status_code == 403
+
+    def test_super_admin_sees_all_companies(self, client, create_company, create_user, super_admin_headers):
+        headers, admin = super_admin_headers
+        _, other_user = self._other_company_user(create_company, create_user)
+
+        response = _call(client, "get", "/api/users/", headers)
+        assert response.status_code == 200
+        company_ids = {i["company_id"] for i in response.json()["data"]["items"]}
+        assert {admin.company_id, other_user.company_id} <= company_ids
+
+        response = _call(client, "get", f"/api/users/{other_user.id}", headers)
+        assert response.status_code == 200

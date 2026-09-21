@@ -16,15 +16,25 @@ from app.features.sifarnici.city.city_model import City  # noqa: F401
 from app.features.company.company_model import Company  # noqa: F401
 from app.features.training.training_model import Training  # noqa: F401
 from app.features.wallet.wallet_model import Wallet  # noqa: F401
-from app.features.sifarnici.payment_type.payment_type_model import PaymentType  # noqa: F401
 from app.features.payment.payment_model import Payment  # noqa: F401
 from app.features.sifarnici.expense_category.expense_category_model import ExpenseCategory  # noqa: F401
 from app.features.sifarnici.income_category.income_category_model import IncomeCategory  # noqa: F401
-from app.features.sifarnici.training_type.training_type_model import TrainingType  # noqa: F401
-from app.features.sifarnici.swimming_discipline.swimming_discipline_model import SwimmingDiscipline  # noqa: F401
-from app.features.training_users_list.training_users_list_model import TrainingUsersList  # noqa: F401
-from app.features.quarter.quarter_model import Quarter  # noqa: F401
-from app.features.quarter_users.quarter_users_model import QuarterUsers  # noqa: F401
+from app.features.training_users.training_users_model import TrainingUsers  # noqa: F401
+from app.features.training_segments.training_segments_model import (  # noqa: F401
+    TrainingSegment,
+    SegmentExercise,
+    SegmentSparring,
+    SparringEvent,
+)
+from app.features.sifarnici.exercise_option.exercise_option_model import ExerciseOption  # noqa: F401
+from app.features.season.season_model import Season  # noqa: F401
+from app.features.sifarnici.selection.selection_model import Selection  # noqa: F401
+from app.features.season_selection_user.season_selection_user_model import SeasonSelectionUser  # noqa: F401
+from app.features.membership.membership_model import Membership  # noqa: F401
+from app.features.contract.contract_model import Contract  # noqa: F401
+from app.features.contract_installment.contract_installment_model import (  # noqa: F401
+    ContractInstallment,
+)
 from app.features.tournament.tournament_model import Tournament  # noqa: F401
 from app.features.tournament_users.tournament_users_model import TournamentUsers  # noqa: F401
 

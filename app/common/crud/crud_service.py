@@ -35,7 +35,7 @@ from typing import Optional, List, TypeVar, Generic, Any, Dict, Tuple
 
 from pydantic import BaseModel
 
-from app.core.api.exceptions import NotFoundException
+from app.core.api.exceptions import ForbiddenException, NotFoundException
 from app.core.db.base import Base
 from app.common.crud.crud_repository import CrudRepository
 from app.common.crud.crud_schemas import CrudFilters, CrudHooks
@@ -79,14 +79,14 @@ class CrudService(Generic[ModelType]):
             self.hooks.post_create(obj, self.db, current_user)
         return obj
 
-    def get_by_id(self, obj_id: int) -> ModelType:
-        obj = self.repository.get_by_id(obj_id)
+    def get_by_id(self, obj_id: int, company_id: Optional[int] = None) -> ModelType:
+        obj = self.repository.get_by_id(obj_id, company_id=company_id)
         if not obj:
             raise NotFoundException("Resource not found")
         return obj
 
-    def get_list(self, filters: CrudFilters) -> Tuple[List[ModelType], int]:
-        return self.repository.get_list(filters=filters)
+    def get_list(self, filters: CrudFilters, company_id: Optional[int] = None) -> Tuple[List[ModelType], int]:
+        return self.repository.get_list(filters=filters, company_id=company_id)
 
     def update(self, obj_id: int, schema: BaseModel, current_user: Optional[Any] = None) -> ModelType:
         data = schema.model_dump(exclude_unset=True)
@@ -99,8 +99,65 @@ class CrudService(Generic[ModelType]):
             self.hooks.post_update(obj, self.db, current_user)
         return obj
 
-    def soft_delete(self, obj_id: int) -> ModelType:
+    def soft_delete(self, obj_id: int, company_id: Optional[int] = None) -> ModelType:
+        self.get_by_id(obj_id, company_id=company_id)
         obj = self.repository.soft_delete(obj_id)
         if not obj:
             raise NotFoundException("Resource not found")
         return obj
+
+    # ── Company scoping ─────────────────────────────
+
+    @staticmethod
+    def company_scope_for(current_user: Optional[Any]) -> Optional[int]:
+        """
+        Which company a request is restricted to.
+        None → unrestricted (SUPER_ADMIN, or internal call without a user).
+        """
+        from app.core.permissions import is_super_admin
+
+        if current_user is None:
+            return None
+        if is_super_admin(current_user):
+            return None
+        return current_user.company_id
+
+    def _enforce_company(self, obj_id: Any, current_user: Optional[Any], message: str) -> None:
+        """
+        Guard one row against the caller's company scope.
+
+        Missing row → NotFoundException. Row that exists but belongs to another
+        company → ForbiddenException. The second lookup only runs on the failure
+        path, so the happy path stays a single query.
+        """
+        company_id = self.company_scope_for(current_user)
+        if company_id is None:
+            return
+        if self.repository.get_by_id(obj_id, company_id=company_id) is not None:
+            return
+        if self.repository.get_by_id(obj_id) is None:
+            raise NotFoundException("Resource not found")
+        raise ForbiddenException(message)
+
+    def enforce_company_read(self, obj_id: Any, current_user: Optional[Any]) -> None:
+        """Read guard — GET /{id}."""
+        self._enforce_company(
+            obj_id, current_user, "You can only view records in your own company."
+        )
+
+    def enforce_company_scope(self, obj_id: Any, current_user: Optional[Any]) -> None:
+        """Write guard — update, deactivate, delete."""
+        self._enforce_company(
+            obj_id, current_user, "You can only manage records in your own company."
+        )
+
+    def enforce_company_in_data(self, data: dict, current_user: Optional[Any]) -> None:
+        """
+        Non-SUPER_ADMIN users may not create a row in, or move a row to,
+        another company. Applies to create and update payloads.
+        """
+        company_id = self.company_scope_for(current_user)
+        if company_id is None or "company_id" not in data:
+            return
+        if data["company_id"] != company_id:
+            raise ForbiddenException("You can only manage records in your own company.")

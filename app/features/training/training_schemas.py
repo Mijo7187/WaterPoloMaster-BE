@@ -2,20 +2,20 @@
 # TRAINING SCHEMAS - Data Validation
 # ============================================
 
-from pydantic import ConfigDict, model_validator
+from pydantic import ConfigDict
 from datetime import date, time
-from typing import Optional
+from typing import List, Optional
 
 from app.common.crud.crud_schemas import CrudCreateSchema, CrudFilters, CrudResponseSchema, CrudUpdateSchema
 from app.features.training.training_model import TrainingStatus
+from app.utils.dateUtils import QuarterType
 from app.features.company.company_schemas import CompanyListResponse
-from app.features.sifarnici.training_type.training_type_schemas import TrainingTypeListResponse
+from app.features.training_segments.training_segments_schemas import TrainingSegmentResponse
 
 
 class TrainingCreate(CrudCreateSchema):
     company_id: int
     pool_id: int
-    training_type_id: int
     training_date: date
     start_time: time
     end_time: time
@@ -27,7 +27,6 @@ class TrainingCreate(CrudCreateSchema):
 class TrainingUpdate(CrudUpdateSchema):
     company_id: Optional[int] = None
     pool_id: Optional[int] = None
-    training_type_id: Optional[int] = None
     training_date: Optional[date] = None
     start_time: Optional[time] = None
     end_time: Optional[time] = None
@@ -46,16 +45,17 @@ class TrainingListResponse(CrudResponseSchema):
     price: int
     status: TrainingStatus
     number_of_players: int = 0
-    training_type_id: Optional[int] = None
+    season_id: Optional[int] = None
+    quarter_type: Optional[QuarterType] = None
     company: Optional[CompanyListResponse] = None
     pool: Optional[CompanyListResponse] = None
-    training_type: Optional[TrainingTypeListResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class TrainingResponse(CrudResponseSchema):
-    """Full schema for get by id — includes nested pool and player count."""
+    """Full schema for get by id — includes nested pool, player count and the
+    ordered segment timeline."""
 
     company_id: int
     training_date: date
@@ -64,10 +64,11 @@ class TrainingResponse(CrudResponseSchema):
     price: int
     status: TrainingStatus
     number_of_players: int = 0
-    training_type_id: Optional[int] = None
+    season_id: Optional[int] = None
+    quarter_type: Optional[QuarterType] = None
     company: Optional[CompanyListResponse] = None
     pool: Optional[CompanyListResponse] = None
-    training_type: Optional[TrainingTypeListResponse] = None
+    segments: List[TrainingSegmentResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -79,6 +80,9 @@ class TrainingFilters(CrudFilters):
         size               → default 20, max 100
     """
     company_id: Optional[int] = None
+    user_id: Optional[int] = None
+    pool_id: Optional[int] = None
+    season_id: Optional[int] = None
     status: Optional[TrainingStatus] = None
     training_date__gte: Optional[date] = None
     training_date__lte: Optional[date] = None

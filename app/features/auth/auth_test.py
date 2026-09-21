@@ -215,3 +215,93 @@ class TestLogoutEndpoint:
     def test_logout_without_auth(self, client):
         response = client.post("/api/auth/logout")
         assert response.status_code in (401, 403)
+
+
+# ============================================
+# RATE LIMITING / DUPLICATE REQUEST GUARDS
+# ============================================
+class TestAuthAbuseProtection:
+    """
+    Tests for the brute-force and duplicate-request protection.
+
+    The autouse `disable_rate_limiting` fixture turns the guards off for the
+    rest of the suite, so each test here switches them back on and works
+    against the in-memory fallback store (no Redis needed).
+    """
+
+    @pytest.fixture
+    def limiter(self):
+        """Enable the guards and start from a clean counter store."""
+        from app.core.config import settings
+        from app.core import rate_limit
+
+        rate_limit._local_counters.clear()
+        settings.RATE_LIMIT_ENABLED = True
+        yield rate_limit
+        settings.RATE_LIMIT_ENABLED = False
+        rate_limit._local_counters.clear()
+
+    def test_identical_login_replay_is_rejected(self, client, limiter):
+        """The same credentials sent twice in a row -> second one gets 429."""
+        payload = {"email": "loop@example.com", "password": "whatever123"}
+
+        with patch("app.core.redis.redis_client") as fake_redis:
+            # Force the in-memory fallback path
+            fake_redis.set.side_effect = ConnectionError("redis down")
+            fake_redis.get.side_effect = ConnectionError("redis down")
+            fake_redis.pipeline.side_effect = ConnectionError("redis down")
+
+            first = client.post("/api/auth/login", json=payload)
+            second = client.post("/api/auth/login", json=payload)
+
+        # First attempt reaches the credential check and fails normally
+        assert first.status_code == 401
+        # Second identical attempt never gets that far
+        assert second.status_code == 429
+        assert "Retry-After" in second.headers
+
+    def test_different_credentials_are_not_deduplicated(self, client, limiter):
+        """Two genuinely different logins must both be processed."""
+        with patch("app.core.redis.redis_client") as fake_redis:
+            fake_redis.set.side_effect = ConnectionError("redis down")
+            fake_redis.get.side_effect = ConnectionError("redis down")
+            fake_redis.pipeline.side_effect = ConnectionError("redis down")
+
+            first = client.post("/api/auth/login", json={
+                "email": "a@example.com", "password": "password1",
+            })
+            second = client.post("/api/auth/login", json={
+                "email": "b@example.com", "password": "password2",
+            })
+
+        assert first.status_code == 401
+        assert second.status_code == 401
+
+    def test_peek_does_not_increment(self, limiter):
+        """peek() must not consume budget — only hit() does."""
+        with patch("app.core.redis.redis_client") as fake_redis:
+            fake_redis.get.side_effect = ConnectionError("redis down")
+            fake_redis.pipeline.side_effect = ConnectionError("redis down")
+
+            for _ in range(10):
+                allowed, _ = limiter.peek("t", "id", limit=2, window_seconds=60)
+                assert allowed is True
+
+            assert limiter.hit("t", "id", 2, 60)[0] is True
+            assert limiter.hit("t", "id", 2, 60)[0] is True
+            # Third hit exceeds the limit of 2
+            assert limiter.hit("t", "id", 2, 60)[0] is False
+
+    def test_reset_clears_the_counter(self, limiter):
+        """A successful login clears the failed-attempt counter."""
+        with patch("app.core.redis.redis_client") as fake_redis:
+            fake_redis.get.side_effect = ConnectionError("redis down")
+            fake_redis.delete.side_effect = ConnectionError("redis down")
+            fake_redis.pipeline.side_effect = ConnectionError("redis down")
+
+            limiter.hit("t2", "id", 2, 60)
+            limiter.hit("t2", "id", 2, 60)
+            assert limiter.peek("t2", "id", 2, 60)[0] is False
+
+            limiter.reset("t2", "id", 60)
+            assert limiter.peek("t2", "id", 2, 60)[0] is True

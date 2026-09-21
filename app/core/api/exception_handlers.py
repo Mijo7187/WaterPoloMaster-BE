@@ -37,7 +37,11 @@ def register_exception_handlers(app: FastAPI) -> None:
                 status_code=exc.status_code,
                 messages=exc.errors,
                 detail=f"{type(exc).__name__}: {exc.message}",
+                # ValidationException carries field-level locations.
+                errors=getattr(exc, "field_errors", None),
             ),
+            # Some errors carry headers (e.g. Retry-After on 429)
+            headers=getattr(exc, "headers", None),
         )
 
     # --------------------------------------------------
@@ -64,9 +68,16 @@ def register_exception_handlers(app: FastAPI) -> None:
     ) -> JSONResponse:
         # Collect all validation messages into a readable string
         error_list = []
+        field_errors = []
         for err in exc.errors():
             field = " -> ".join(str(loc) for loc in err["loc"])
             error_list.append(f"{field}: {err['msg']}")
+            # Same {loc, msg} shape as ValidationException, so the frontend
+            # reads row-level errors one way. "body" is dropped from loc.
+            loc = list(err["loc"])
+            if loc and loc[0] == "body":
+                loc = loc[1:]
+            field_errors.append({"loc": loc, "msg": err["msg"]})
 
         return JSONResponse(
             status_code=422,
@@ -74,6 +85,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 status_code=422,
                 messages=error_list if error_list else ["Validation error"],
                 detail=f"RequestValidationError: {len(error_list)} field(s) failed",
+                errors=field_errors,
             ),
         )
 

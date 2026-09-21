@@ -31,5 +31,8 @@ class TournamentUsersService(CrudService[TournamentUsers]):
         self.db.delete(obj)
         self.db.commit()
 
+    def get_list_with_payment_status(self, filters):
+        return self.repository.get_list_with_payment_status(filters)
+
     def get_users_not_in_tournament(self, tournament_id: int, company_id: int, page: int = 1, size: int = 20):
         return self.repository.get_users_not_in_tournament(tournament_id, company_id, page, size)

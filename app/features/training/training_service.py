@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.common.crud.crud_service import CrudService
 from app.common.crud.crud_schemas import CrudHooks
 from app.core.api.exceptions import ForbiddenException
+from app.features.season.season_service import resolve_season_id
 from app.features.training.training_model import Training
 from app.features.training.training_repository import TrainingRepository
 from app.features.users.users_models import User, UserRole
@@ -18,6 +19,13 @@ def _convert_enums_on_create(data: dict, db, current_user: Optional[User] = None
     """Convert status enum to its string value before insert."""
     if "status" in data and hasattr(data["status"], "value"):
         data["status"] = data["status"].value
+    return data
+
+
+def _training_pre_create(data: dict, db, current_user: Optional[User] = None) -> dict:
+    """Convert enums and resolve the season from the training date before insert."""
+    data = _convert_enums_on_create(data, db, current_user)
+    data["season_id"] = resolve_season_id(db, data["company_id"], data["training_date"])
     return data
 
 
@@ -71,7 +79,7 @@ class TrainingService(CrudService[Training]):
             db,
             TrainingRepository(db),
             hooks=CrudHooks(
-                pre_create=_convert_enums_on_create,
+                pre_create=_training_pre_create,
                 pre_update=_training_pre_update,
             )
         )

@@ -1,16 +1,14 @@
 import uuid
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.crud.crud_service import CrudService
-from app.core.api.exceptions import NotFoundException
-from app.features.company.company_model import Company
+from app.common.resolver.polymorphic_resolver import resolve_wallet_owners
 from app.features.payment.payment_model import Payment, PaymentStatus
-from app.features.users.users_models import User
-from app.features.wallet.wallet_model import Wallet, WalletOwnerType
+from app.features.wallet.wallet_model import Wallet
 from app.features.wallet.wallet_repository import WalletRepository
 from app.features.wallet.wallet_schemas import LedgerEntry
 
@@ -19,14 +17,17 @@ class WalletService(CrudService[Wallet]):
     def __init__(self, db: Session):
         super().__init__(db, WalletRepository(db))
 
-    def resolve_owner(self, wallet: Wallet) -> User | Company:
-        if wallet.owner_type == WalletOwnerType.USER:
-            owner = self.db.get(User, wallet.owner_id)
-        else:
-            owner = self.db.get(Company, wallet.owner_id)
-        if not owner:
-            raise NotFoundException("Wallet owner not found")
-        return owner
+    def get_list(self, filters, company_id: Optional[int] = None) -> tuple[List[Wallet], int]:
+        """List wallets with every owner resolved in one batched pass per owner
+        type — bounded query count regardless of page size."""
+        items, total = self.repository.get_list(filters, company_id=company_id)
+        resolve_wallet_owners(self.db, items)
+        return items, total
+
+    def get_by_id(self, obj_id: uuid.UUID, company_id: Optional[int] = None) -> Wallet:
+        obj = super().get_by_id(obj_id, company_id=company_id)
+        resolve_wallet_owners(self.db, [obj])
+        return obj
 
     def get_summary(self, wallet_id: uuid.UUID) -> dict:
         total_in_completed = Decimal(

@@ -21,6 +21,29 @@ class UserRole(str, enum.Enum):
     SUPER_ADMIN = "SUPER_ADMIN"
     ADMIN = "ADMIN"
     USER = "USER"
+    PLAYER = "PLAYER"
+    COACH = "COACH"
+
+
+# ============================================
+# PLAYER POSITION ENUM (water polo positions)
+# ============================================
+class PlayerPosition(str, enum.Enum):
+    GK = "GK"   # Goalkeeper
+    LW = "LW"   # Left Wing
+    LB = "LB"   # Left Back
+    CB = "CB"   # Center Back
+    RB = "RB"   # Right Back
+    RW = "RW"   # Right Wing
+    C = "C"     # Center
+
+
+# ============================================
+# DEFAULT TEAM ENUM
+# ============================================
+class DefaultTeam(str, enum.Enum):
+    HOME = "HOME"
+    AWAY = "AWAY"
 
 
 # ============================================
@@ -67,7 +90,7 @@ class User(Base):
     is_active = Column(Boolean, default=True)
 
     # Company - every user except SUPER_ADMIN must belong to a company
-    company_id = Column(Integer, ForeignKey("company.id"), nullable=True)
+    company_id = Column(Integer, ForeignKey("company.id"), nullable=False)
     company = relationship("Company", back_populates="users")
 
     w_id = Column(UUID(as_uuid=True), ForeignKey("wallet.id"), nullable=True)
@@ -75,6 +98,14 @@ class User(Base):
 
     # User roles - array of role strings e.g. ["USER"] or ["ADMIN", "USER"]
     roles = Column(JSON, default=lambda: [UserRole.USER.value])
+
+    # Player positions - array of position strings e.g. ["GK"] or ["LW", "C"]
+    # Required (in the schema) when the user holds the PLAYER role.
+    position = Column(JSON, nullable=True)
+
+    # Default team side the player lines up on (HOME / AWAY).
+    # Required (in the schema) when the user holds the PLAYER role.
+    default_team = Column(String(10), nullable=True)
     
     # Timestamps - automatically track when user was created/updated
     created_at = Column(DateTime(timezone=True), server_default=func.now())

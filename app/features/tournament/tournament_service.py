@@ -10,6 +10,7 @@ from app.common.crud.crud_service import CrudService
 from app.common.crud.crud_schemas import CrudHooks
 from app.core.api.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.features.company.company_model import Company, CompanyType
+from app.features.season.season_service import resolve_season_id
 from app.features.tournament.tournament_model import Tournament
 from app.features.tournament.tournament_repository import TournamentRepository
 from app.features.users.users_models import User, UserRole
@@ -23,8 +24,9 @@ def _validate_pool(pool_id, db) -> None:
 
 
 def _pre_create(data: dict, db, current_user: Optional[User] = None) -> dict:
-    """Validate the pool before insert."""
+    """Validate the pool and resolve the season from from_date before insert."""
     _validate_pool(data["pool_id"], db)
+    data["season_id"] = resolve_season_id(db, data["company_id"], data["from_date"])
     return data
 
 
