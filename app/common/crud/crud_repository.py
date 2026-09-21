@@ -154,17 +154,41 @@ class CrudRepository(Generic[ModelType]):
         self.db.refresh(db_obj)
         return db_obj
  
-    def get_by_id(self, obj_id: int) -> Optional[ModelType]:
+    def company_scope_clause(self, company_id: int):
+        """
+        The rows one company may see. Override where the key is not company_id
+        (Company itself) or where other companies are deliberately visible.
+        """
+        if not hasattr(self.model, "company_id"):
+            raise AttributeError(
+                f"{self.model.__name__} has no company_id column — cannot scope by company"
+            )
+        return self.model.company_id == company_id
+
+    def _apply_company_scope(self, q, company_id: Optional[int]):
+        """
+        Restrict a query to rows of one company.
+        company_id=None means "no scope" (SUPER_ADMIN or internal call).
+        """
+        if company_id is None:
+            return q
+        return q.filter(self.company_scope_clause(company_id))
+
+    def get_by_id(self, obj_id: int, company_id: Optional[int] = None) -> Optional[ModelType]:
         q = self.db.query(self.model)
         for opt in self.get_by_id_relations():
             q = q.options(opt() if callable(opt) else opt)
+        q = self._apply_company_scope(q, company_id)
         return q.filter(self.model.id == obj_id).first()
- 
-    def get_list(self, filters: CrudFilters) -> Tuple[List[ModelType], int]:
+
+    def get_list(self, filters: CrudFilters, company_id: Optional[int] = None) -> Tuple[List[ModelType], int]:
         """
         Returns (items, total) tuple.
         Pagination, filtering, and relation loading all handled here.
         model_dump happens here — service and router stay clean.
+
+        company_id, when given, is always applied on top of the
+        client filters — a client-sent company_id cannot widen it.
         """
         # Extract pagination and ordering, filter rest
         filter_dict = filters.model_dump(exclude_unset=True)
@@ -175,6 +199,7 @@ class CrudRepository(Generic[ModelType]):
         offset = (page - 1) * size
 
         q = self.db.query(self.model)
+        q = self._apply_company_scope(q, company_id)
 
         # Apply default relations
         for opt in self.get_list_relations():

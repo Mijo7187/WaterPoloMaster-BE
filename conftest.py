@@ -25,7 +25,16 @@ from app.features.users.users_models import User, UserRole
 from app.features.company.company_model import Company
 from app.features.sifarnici.country.country_model import Country
 from app.features.training.training_model import Training, TrainingStatus
-from app.features.quarter.quarter_model import Quarter, QuarterType, quarter_type_for_date
+from app.features.season.season_model import Season
+from app.features.sifarnici.selection.selection_model import Selection  # noqa: F401
+from app.features.season_selection_user.season_selection_user_model import (  # noqa: F401
+    SeasonSelectionUser,
+)
+from app.features.membership.membership_model import Membership  # noqa: F401
+from app.features.contract.contract_model import Contract  # noqa: F401
+from app.features.contract_installment.contract_installment_model import (  # noqa: F401
+    ContractInstallment,
+)
 
 
 # ============================================
@@ -55,6 +64,25 @@ def setup_database():
     Base.metadata.create_all(bind=engine)
     yield
     Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(autouse=True)
+def disable_rate_limiting():
+    """
+    Turn off rate limiting / duplicate-request guards for the test suite.
+
+    Tests fire many identical requests back to back, which is exactly what
+    the production guards are built to reject. Tests that specifically
+    exercise the limiter can flip the flag back on themselves.
+    """
+    from app.core.config import settings
+    from app.core import rate_limit
+
+    original = settings.RATE_LIMIT_ENABLED
+    settings.RATE_LIMIT_ENABLED = False
+    rate_limit._local_counters.clear()
+    yield
+    settings.RATE_LIMIT_ENABLED = original
 
 
 @pytest.fixture()
@@ -108,6 +136,22 @@ def mock_redis():
 
 
 # ============================================
+# FROZEN "TODAY" FIXTURE
+# ============================================
+
+@pytest.fixture()
+def freeze_club_today(monkeypatch):
+    """Freeze the club-local "today" the contract service uses to compute
+    statuses. Call it with a date; call it again to move time forward."""
+    def _freeze(d):
+        monkeypatch.setattr(
+            "app.features.contract.contract_service.club_today", lambda: d
+        )
+        return d
+    return _freeze
+
+
+# ============================================
 # FACTORY FIXTURES
 # ============================================
 
@@ -147,7 +191,7 @@ def create_user(db_session):
         phone_number="123456",
         date_of_birth=date(2000, 1, 1),
         roles=None,
-        company_id=None,
+        company_id=None,  # required by the DB (NOT NULL); callers must pass one
         is_active=True,
         **kwargs,
     ):
@@ -174,60 +218,60 @@ def create_user(db_session):
 
 
 @pytest.fixture()
-def create_quarter(db_session):
-    """Factory fixture to create a quarter in the DB."""
-    def _create(company_id, quarter_type=QuarterType.Q2, year=2026,
-                waterpolo_price=15000, swimming_price=6000, **kwargs):
-        quarter = Quarter(
-            quarter_type=quarter_type,
-            year=year,
-            waterpolo_price=waterpolo_price,
-            swimming_price=swimming_price,
+def create_season(db_session):
+    """Factory fixture to create a season in the DB."""
+    def _create(company_id, name="2026 Season",
+                start_date=date(2026, 1, 1), end_date=date(2026, 12, 31),
+                is_current=True, **kwargs):
+        season = Season(
             company_id=company_id,
+            name=name,
+            start_date=start_date,
+            end_date=end_date,
+            is_current=is_current,
             **kwargs,
         )
-        db_session.add(quarter)
+        db_session.add(season)
         db_session.commit()
-        db_session.refresh(quarter)
-        return quarter
+        db_session.refresh(season)
+        return season
     return _create
 
 
 @pytest.fixture()
-def ensure_quarter(db_session):
-    """Find-or-create the quarter matching a company + date (used by factories)."""
+def ensure_season(db_session):
+    """Find-or-create the season covering a company + date (used by factories)."""
     def _ensure(company_id, d):
-        qtype = quarter_type_for_date(d)
-        quarter = (
-            db_session.query(Quarter)
+        season = (
+            db_session.query(Season)
             .filter(
-                Quarter.quarter_type == qtype,
-                Quarter.year == d.year,
-                Quarter.company_id == company_id,
+                Season.company_id == company_id,
+                Season.start_date <= d,
+                Season.end_date >= d,
             )
             .first()
         )
-        if quarter is None:
-            quarter = Quarter(
-                quarter_type=qtype,
-                year=d.year,
-                waterpolo_price=15000,
-                swimming_price=6000,
+        if season is None:
+            season = Season(
                 company_id=company_id,
+                name=f"{d.year} Season",
+                start_date=date(d.year, 1, 1),
+                end_date=date(d.year, 12, 31),
+                is_current=True,
             )
-            db_session.add(quarter)
+            db_session.add(season)
             db_session.commit()
-            db_session.refresh(quarter)
-        return quarter
+            db_session.refresh(season)
+        return season
     return _ensure
 
 
 @pytest.fixture()
-def create_training(db_session, ensure_quarter):
+def create_training(db_session, ensure_season):
     """Factory fixture to create a training in the DB.
 
-    pool_id and quarter_id are NOT NULL on the model, so defaults are supplied:
-    the pool defaults to the training's own company, and the quarter matching the
+    pool_id and season_id are NOT NULL on the model, so defaults are supplied:
+    the pool defaults to the training's own company, and the season covering the
     training's date is found-or-created.
     """
     def _create(company_id, pool_id=None, **kwargs):
@@ -240,8 +284,8 @@ def create_training(db_session, ensure_quarter):
             "pool_id": pool_id if pool_id is not None else company_id,
         }
         defaults.update(kwargs)
-        quarter = ensure_quarter(company_id, defaults["training_date"])
-        training = Training(company_id=company_id, quarter_id=quarter.id, **defaults)
+        season = ensure_season(company_id, defaults["training_date"])
+        training = Training(company_id=company_id, season_id=season.id, **defaults)
         db_session.add(training)
         db_session.commit()
         db_session.refresh(training)
@@ -252,10 +296,12 @@ def create_training(db_session, ensure_quarter):
 @pytest.fixture()
 def create_exercise_option(db_session):
     """Factory fixture to create an exercise_option (sifarnik) in the DB."""
-    def _create(segment_type, code="freestyle", name="Freestyle", **kwargs):
+    def _create(segment_type, company_id, code="freestyle", name="Freestyle", **kwargs):
         from app.features.sifarnici.exercise_option.exercise_option_model import ExerciseOption
 
-        option = ExerciseOption(segment_type=segment_type, code=code, name=name, **kwargs)
+        option = ExerciseOption(
+            segment_type=segment_type, company_id=company_id, code=code, name=name, **kwargs
+        )
         db_session.add(option)
         db_session.commit()
         db_session.refresh(option)
@@ -296,14 +342,16 @@ def auth_headers(create_company, create_user, mock_redis):
 
 
 @pytest.fixture()
-def super_admin_headers(create_user, mock_redis):
+def super_admin_headers(create_company, create_user, mock_redis):
     """Return Authorization headers for a SUPER_ADMIN user."""
     from app.core.security import create_access_token
 
+    company = create_company(name="Super Admin Company")
     user = create_user(
         email="super@test.com",
         username="superadmin",
         roles=[UserRole.SUPER_ADMIN],
+        company_id=company.id,
     )
     token = create_access_token({
         "sub": user.email,

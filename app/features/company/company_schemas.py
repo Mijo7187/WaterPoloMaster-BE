@@ -38,6 +38,22 @@ class CompanyUpdate(CrudUpdateSchema):
     company_type: Optional[CompanyType] = None
 
 
+class AcademyRef(CrudResponseSchema):
+    """Nested academy on a company response — kept flat to avoid recursion."""
+
+    name: str
+    is_active: bool
+    company_type: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AcademyCompanyAttach(BaseModel):
+    """Body of POST /academy/{academy_id}/companies."""
+
+    company_id: int
+
+
 class CompanyListResponse(CrudResponseSchema):
     """Lightweight schema for list view — includes nested city and country."""
 
@@ -48,6 +64,7 @@ class CompanyListResponse(CrudResponseSchema):
     country: Optional[CountryResponse] = None
     email: Optional[str] = None
     phone_number: Optional[str] = None
+    academy_id: Optional[int] = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -62,6 +79,8 @@ class CompanyResponse(CrudResponseSchema):
     phone_number: Optional[str] = None
     email: Optional[str] = None
     company_type: str
+    academy_id: Optional[int] = None
+    academy: Optional[AcademyRef] = None
     w_id: Optional[UUID] = None
     w: Optional[WalletResponse] = Field(None, validation_alias="wallet")
 
@@ -82,4 +101,5 @@ class CompanyFilters(CrudFilters):
     company_type: Optional[CompanyType] = None
     city_id: Optional[int] = None
     country_id: Optional[int] = None
-    
+    academy_id: Optional[int] = None
+    academy_id__isnull: Optional[bool] = None

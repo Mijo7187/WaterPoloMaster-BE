@@ -10,11 +10,21 @@
 # truth for both create and update.
 # ============================================
 
+import re
 from typing import Annotated, List, Literal, Optional, Union
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.features.training_segments.training_segments_model import EventType, SegmentType
+from app.features.company.company_schemas import CompanyResponse
+from app.features.training_segments.training_segments_model import (
+    EventType,
+    SegmentType,
+    SparringSide,
+)
+
+# Game-clock stamp, either "mm:ss" or "hh:mm:ss" (time-picker value).
+# Seconds/minutes are 00-59; the leading unit (minutes or hours) is open-ended.
+_CLOCK_RE = re.compile(r"^(?:\d{1,2}:[0-5]\d:[0-5]\d|\d{1,3}:[0-5]\d)$")
 
 
 # ============================================
@@ -34,19 +44,42 @@ class SegmentExerciseCreate(BaseModel):
 
 
 class SparringEventCreate(BaseModel):
-    user_id: int
+    # None = opponent action (opponent players are not in our users table).
+    user_id: Optional[int] = None
+    side: SparringSide  # which team the event counts for
     event_type: EventType
-    minute: Optional[int] = None
+    # Game-clock stamp as "mm:ss" or "hh:mm:ss" (time-picker value), e.g. "07:30".
+    minute: Optional[str] = None
     note: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("minute")
+    @classmethod
+    def _validate_minute(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not _CLOCK_RE.match(v):
+            raise ValueError(
+                "minute must be a 'mm:ss' or 'hh:mm:ss' time string, e.g. '07:30'"
+            )
+        return v
+
+
+class SparringParticipantCreate(BaseModel):
+    user_id: int
+    side: SparringSide
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class SparringCreate(BaseModel):
-    opponent_company_id: int
-    our_score: Optional[int] = None
-    opponent_score: Optional[int] = None
+    # The two clubs. Internal sparring (us vs. us) may leave both null.
+    # Scores are derived from side-tagged events, not stored.
+    home_company_id: Optional[int] = None
+    away_company_id: Optional[int] = None
     notes: Optional[str] = None
+    participants: List[SparringParticipantCreate] = Field(default_factory=list)
     events: List[SparringEventCreate] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
@@ -86,11 +119,11 @@ TrainingSegmentCreate = Annotated[
 # SEGMENT UPDATE (segment_type is not changeable)
 # ============================================
 class SparringUpdate(BaseModel):
-    opponent_company_id: Optional[int] = None
-    our_score: Optional[int] = None
-    opponent_score: Optional[int] = None
+    home_company_id: Optional[int] = None
+    away_company_id: Optional[int] = None
     notes: Optional[str] = None
-    # When provided, fully replaces the event list.
+    # When provided, each fully replaces its respective list.
+    participants: Optional[List[SparringParticipantCreate]] = None
     events: Optional[List[SparringEventCreate]] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -113,7 +146,7 @@ class TrainingSegmentUpdate(BaseModel):
 class ExerciseOptionMini(BaseModel):
     id: int
     segment_type: SegmentType
-    code: str
+    code: Optional[str] = None  # code is nullable on exercise_option
     name: str
 
     model_config = ConfigDict(from_attributes=True)
@@ -136,20 +169,32 @@ class SegmentExerciseResponse(BaseModel):
 
 class SparringEventResponse(BaseModel):
     id: int
-    user_id: int
+    user_id: Optional[int] = None  # None = opponent action
+    side: Optional[SparringSide] = None
     event_type: EventType
-    minute: Optional[int] = None
+    minute: Optional[str] = None  # "mm:ss" game-clock stamp
     note: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SparringParticipantResponse(BaseModel):
+    id: int
+    user_id: int
+    side: SparringSide
 
     model_config = ConfigDict(from_attributes=True)
 
 
 class SegmentSparringResponse(BaseModel):
     id: int
-    opponent_company_id: int
-    our_score: Optional[int] = None
-    opponent_score: Optional[int] = None
+    home_company_id: Optional[int] = None
+    away_company_id: Optional[int] = None
+    # Nested full company objects (null for internal sparring with no club set).
+    home_company: Optional[CompanyResponse] = None
+    away_company: Optional[CompanyResponse] = None
     notes: Optional[str] = None
+    participants: List[SparringParticipantResponse] = Field(default_factory=list)
     events: List[SparringEventResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

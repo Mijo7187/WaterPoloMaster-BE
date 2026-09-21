@@ -1,16 +1,32 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import ConfigDict, Field, model_validator
 
-from app.common.crud.crud_schemas import CrudCreateSchema, CrudFilters, CrudResponseSchema, CrudUpdateSchema
-from app.features.payment.payment_model import PaymentStatus, PaymentTypeCode
-from app.features.wallet.wallet_schemas import WalletResponse
-from app.features.quarter.quarter_schemas import QuarterListResponse
+from app.common.crud.crud_schemas import (
+    CrudCreateSchema,
+    CrudFilters,
+    CrudResponseSchema,
+    CrudUpdateSchema,
+)
+from app.features.contract_installment.contract_installment_schemas import (
+    ContractInstallmentListResponse,
+)
+from app.features.payment.payment_model import PayableType, PaymentStatus, PaymentTypeCode
 from app.features.tournament.tournament_schemas import TournamentListResponse
 from app.features.training.training_schemas import TrainingListResponse
+from app.features.wallet.wallet_schemas import WalletResponse
+
+
+# Which schema serializes a resolved payable, keyed by its type. Mirrors the
+# resolver's registry — adding a payable type means adding a line to both.
+PAYABLE_RESPONSE_SCHEMAS = {
+    PayableType.CONTRACT_INSTALLMENT: ContractInstallmentListResponse,
+    PayableType.TOURNAMENT: TournamentListResponse,
+    PayableType.TRAINING: TrainingListResponse,
+}
 
 
 class PaymentCreate(CrudCreateSchema):
@@ -20,28 +36,19 @@ class PaymentCreate(CrudCreateSchema):
     amount: Decimal = Field(..., gt=0, decimal_places=2)
     status: PaymentStatus = PaymentStatus.PENDING
     description: Optional[str] = None
-    quarter_id: Optional[int] = None
-    tournament_id: Optional[int] = None
-    training_id: Optional[int] = None
+
+    # Polymorphic payable. Structural pairing is checked here; the rules about
+    # WHICH payable type a given payment_type demands — and whether the target
+    # row actually exists — live in PaymentService.create() against
+    # PAYMENT_TYPE_SPECS, because payable_id has no DB foreign key to lean on.
+    payable_type: Optional[PayableType] = None
+    payable_id: Optional[int] = None
 
     @model_validator(mode="after")
-    def _exactly_one_context_at_most(self) -> "PaymentCreate":
-        # Structural check only: a payment belongs to at most one business
-        # context. The type-based rule ("this payment type *requires* a
-        # quarter/tournament/training id") is driven by PAYMENT_TYPE_SPECS and
-        # enforced in PaymentService.create().
-        provided = [
-            name
-            for name, value in (
-                ("quarter_id", self.quarter_id),
-                ("tournament_id", self.tournament_id),
-                ("training_id", self.training_id),
-            )
-            if value is not None
-        ]
-        if len(provided) > 1:
+    def _payable_pair_is_complete(self) -> "PaymentCreate":
+        if (self.payable_type is None) != (self.payable_id is None):
             raise ValueError(
-                f"A payment may reference at most one context; got {provided}."
+                "payable_type and payable_id must be provided together."
             )
         return self
 
@@ -59,16 +66,36 @@ class PaymentResponse(CrudResponseSchema):
     amount: Decimal
     status: PaymentStatus
     description: Optional[str] = None
-    quarter_id: Optional[int] = None
-    tournament_id: Optional[int] = None
-    training_id: Optional[int] = None
+    payable_type: Optional[PayableType] = None
+    payable_id: Optional[int] = None
     created_at: Optional[datetime] = None
     sender_wallet: Optional[WalletResponse] = None
     receiver_wallet: Optional[WalletResponse] = None
-    quarter: Optional[QuarterListResponse] = None
-    tournament: Optional[TournamentListResponse] = None
-    training: Optional[TrainingListResponse] = None
+
+    # Populated by the batch resolver before serialization. Typed loosely
+    # because the concrete shape depends on payable_type; the validator below
+    # narrows it to the right schema.
+    payable: Optional[Any] = None
+
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _serialize_payable(self) -> "PaymentResponse":
+        """Turn the raw resolved ORM payable into its list-schema dict.
+
+        A payable that was never resolved, or whose target has been deleted
+        (orphan), stays None — a dangling reference must not break the list.
+        """
+        if self.payable is None or isinstance(self.payable, dict):
+            return self
+
+        schema = PAYABLE_RESPONSE_SCHEMAS.get(self.payable_type)
+        if schema is None:
+            self.payable = None
+            return self
+
+        self.payable = schema.model_validate(self.payable).model_dump()
+        return self
 
 
 class PaymentFilters(CrudFilters):
@@ -79,9 +106,5 @@ class PaymentFilters(CrudFilters):
     status: Optional[PaymentStatus] = None
     amount__gte: Optional[Decimal] = None
     amount__lte: Optional[Decimal] = None
-    quarter_id: Optional[int] = None
-    tournament_id: Optional[int] = None
-    training_id: Optional[int] = None
-
-
-
+    payable_type: Optional[PayableType] = None
+    payable_id: Optional[int] = None

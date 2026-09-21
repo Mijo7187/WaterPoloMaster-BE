@@ -27,8 +27,14 @@ from app.features.training_segments.training_segments_model import (  # noqa: F4
     SparringEvent,
 )
 from app.features.sifarnici.exercise_option.exercise_option_model import ExerciseOption  # noqa: F401
-from app.features.quarter.quarter_model import Quarter  # noqa: F401
-from app.features.quarter_users.quarter_users_model import QuarterUsers  # noqa: F401
+from app.features.season.season_model import Season  # noqa: F401
+from app.features.sifarnici.selection.selection_model import Selection  # noqa: F401
+from app.features.season_selection_user.season_selection_user_model import SeasonSelectionUser  # noqa: F401
+from app.features.membership.membership_model import Membership  # noqa: F401
+from app.features.contract.contract_model import Contract  # noqa: F401
+from app.features.contract_installment.contract_installment_model import (  # noqa: F401
+    ContractInstallment,
+)
 from app.features.tournament.tournament_model import Tournament  # noqa: F401
 from app.features.tournament_users.tournament_users_model import TournamentUsers  # noqa: F401
 

@@ -74,6 +74,33 @@ class TrainingSegmentService(CrudService[TrainingSegment]):
             raise NotFoundException("Training segment not found")
         return segment
 
+    # ── Sparring validation ─────────────────────────
+
+    @staticmethod
+    def _field(row, name):
+        # Rows arrive as Pydantic objects (create) or dicts (update).
+        return row.get(name) if isinstance(row, dict) else getattr(row, name)
+
+    def _validate_sparring_sides(self, participants, events) -> None:
+        # A player-linked event must belong to a rostered participant and agree
+        # on side. Opponent events (user_id=None) are unconstrained.
+        side_by_user = {
+            self._field(p, "user_id"): self._field(p, "side") for p in participants
+        }
+        for event in events:
+            user_id = self._field(event, "user_id")
+            if user_id is None:
+                continue
+            if user_id not in side_by_user:
+                raise BadRequestException(
+                    f"Event references user {user_id} who is not a sparring participant"
+                )
+            if side_by_user[user_id] != self._field(event, "side"):
+                raise BadRequestException(
+                    f"Event for user {user_id} has a side that does not match the "
+                    f"player's participant side"
+                )
+
     # ── Exercise validation / preparation ───────────
 
     def _validate_group_consistency(
@@ -142,10 +169,16 @@ class TrainingSegmentService(CrudService[TrainingSegment]):
         }
 
         if isinstance(schema, SparringSegmentCreate):
-            sparring_data = schema.sparring.model_dump(exclude={"events"})
+            self._validate_sparring_sides(
+                schema.sparring.participants, schema.sparring.events
+            )
+            sparring_data = schema.sparring.model_dump(
+                exclude={"participants", "events"}
+            )
+            participants = [p.model_dump() for p in schema.sparring.participants]
             events = [e.model_dump() for e in schema.sparring.events]
             return self.repository.create_sparring_segment(
-                segment_data, sparring_data, events
+                segment_data, sparring_data, participants, events
             )
 
         # Exercise segment (SWIMMING / GYM / WORK_WITH_BALL)
@@ -181,8 +214,30 @@ class TrainingSegmentService(CrudService[TrainingSegment]):
                     "Only a sparring segment can carry a sparring payload"
                 )
             sparring_payload = data["sparring"]
+            participants = sparring_payload.pop("participants", None)
             events = sparring_payload.pop("events", None)
-            self.repository.update_sparring(segment.sparring, sparring_payload, events)
+            # Validate against the effective (post-update) lists: a list that is
+            # not being replaced keeps its current rows.
+            effective_participants = (
+                participants
+                if participants is not None
+                else [
+                    {"user_id": p.user_id, "side": p.side}
+                    for p in segment.sparring.participants
+                ]
+            )
+            effective_events = (
+                events
+                if events is not None
+                else [
+                    {"user_id": e.user_id, "side": e.side}
+                    for e in segment.sparring.events
+                ]
+            )
+            self._validate_sparring_sides(effective_participants, effective_events)
+            self.repository.update_sparring(
+                segment.sparring, sparring_payload, participants, events
+            )
 
         return self.repository.commit_and_return(segment_id)
 

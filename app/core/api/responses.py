@@ -31,6 +31,7 @@ def error_response(
     status_code: int = 400,
     messages: list[str] | None = None,
     detail: str | None = None,
+    errors: list[dict] | None = None,
 ) -> dict:
     """
     Build an error response dict.
@@ -40,12 +41,16 @@ def error_response(
         status_code: HTTP status code
         messages: List of user-friendly error messages (translatable on BE)
         detail: Technical debug info (hidden in production)
+        errors: 422 only — field-level [{loc, msg}], loc without the "body" prefix
     """
     from app.core.config import settings
 
-    return {
+    response = {
         "status": status_code,
         "messages": messages or [],
         "data": None,
         "detail": detail if settings.APP_ENV != "production" else None,
     }
+    if errors is not None:
+        response["errors"] = errors
+    return response

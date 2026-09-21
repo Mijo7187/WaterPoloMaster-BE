@@ -2,7 +2,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.common.crud.crud_repository import CrudRepository
-from app.features.payment.payment_model import Payment
+from app.features.payment.payment_model import PayableType, Payment
 from app.features.tournament_users.tournament_users_model import TournamentUsers
 from app.features.users.users_models import User
 from app.features.wallet.wallet_model import Wallet, WalletOwnerType
@@ -29,6 +29,9 @@ class TournamentUsersRepository(CrudRepository[TournamentUsers]):
         via a correlated scalar subquery over the wallet → payment join — one SQL query,
         no N+1. Correlates on the row's own tournament_id so the status is per-row correct
         even when the list spans multiple tournaments.
+
+        The payment side is matched on the polymorphic (payable_type, payable_id)
+        pair — payment no longer carries a tournament_id column.
         """
         filter_dict = filters.model_dump(exclude_unset=True)
         page = filter_dict.pop("page", filters.page)
@@ -43,7 +46,8 @@ class TournamentUsersRepository(CrudRepository[TournamentUsers]):
             .where(
                 Wallet.owner_id == TournamentUsers.user_id,
                 Wallet.owner_type == WalletOwnerType.USER,
-                Payment.tournament_id == TournamentUsers.tournament_id,
+                Payment.payable_type == PayableType.TOURNAMENT,
+                Payment.payable_id == TournamentUsers.tournament_id,
             )
             .correlate(TournamentUsers)
             .scalar_subquery()

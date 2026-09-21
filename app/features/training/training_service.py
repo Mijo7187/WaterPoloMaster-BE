@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.common.crud.crud_service import CrudService
 from app.common.crud.crud_schemas import CrudHooks
 from app.core.api.exceptions import ForbiddenException
-from app.features.quarter.quarter_service import resolve_quarter_id
+from app.features.season.season_service import resolve_season_id
 from app.features.training.training_model import Training
 from app.features.training.training_repository import TrainingRepository
 from app.features.users.users_models import User, UserRole
@@ -23,9 +23,9 @@ def _convert_enums_on_create(data: dict, db, current_user: Optional[User] = None
 
 
 def _training_pre_create(data: dict, db, current_user: Optional[User] = None) -> dict:
-    """Convert enums and resolve the quarter from the training date before insert."""
+    """Convert enums and resolve the season from the training date before insert."""
     data = _convert_enums_on_create(data, db, current_user)
-    data["quarter_id"] = resolve_quarter_id(db, data["company_id"], data["training_date"])
+    data["season_id"] = resolve_season_id(db, data["company_id"], data["training_date"])
     return data
 
 

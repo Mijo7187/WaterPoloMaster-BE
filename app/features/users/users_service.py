@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.common.crud.crud_service import CrudService
 from app.core.api.exceptions import BadRequestException, ConflictException, NotFoundException
+from app.features.company.company_repository import CompanyRepository
 from app.features.users.users_models import User
 from app.features.users.users_repository import UserRepository
 from app.features.users.users_schemas import UserCreate
@@ -39,17 +40,29 @@ class UserService(CrudService[User]):
         if errors:
             raise ConflictException(message=errors[0], errors=errors)
 
+        if not CompanyRepository(self.db).get_by_id(schema.company_id):
+            raise BadRequestException(message="Company not found")
+
         data = schema.model_dump(exclude={"password"})
         data["hashed_password"] = self.hash_password(schema.password)
         data["roles"] = [role.value for role in schema.roles]
+        if schema.position is not None:
+            data["position"] = [p.value for p in schema.position]
+        if schema.default_team is not None:
+            data["default_team"] = schema.default_team.value
 
         user = User(**data)
         self.db.add(user)
         self.db.flush()
-        
 
-        wallet = Wallet(owner_id=user.id, owner_type=WalletOwnerType.USER)
+        wallet = Wallet(
+            owner_id=user.id,
+            owner_type=WalletOwnerType.USER,
+            name=f"{user.first_name} {user.last_name}",
+        )
         self.db.add(wallet)
+        self.db.flush()        # populate wallet.id before linking
+        user.w_id = wallet.id
         self.db.commit()
         self.db.refresh(user)
         return user
@@ -82,6 +95,15 @@ class UserService(CrudService[User]):
 
         if "roles" in update_data:
             update_data["roles"] = [r.value if hasattr(r, "value") else r for r in update_data["roles"]]
+
+        if update_data.get("position") is not None:
+            update_data["position"] = [
+                p.value if hasattr(p, "value") else p for p in update_data["position"]
+            ]
+
+        if update_data.get("default_team") is not None:
+            dt = update_data["default_team"]
+            update_data["default_team"] = dt.value if hasattr(dt, "value") else dt
 
         obj = self.repository.update(obj_id, update_data)
         if not obj:

@@ -9,7 +9,7 @@ from app.features.training.training_service import TrainingService
 from app.features.training.training_repository import TrainingRepository
 from app.features.training.training_schemas import TrainingCreate, TrainingUpdate, TrainingFilters
 from app.features.training.training_model import Training, TrainingStatus
-from app.features.quarter.quarter_model import QuarterType
+from app.utils.dateUtils import QuarterType
 from app.core.api.exceptions import BadRequestException, NotFoundException
 
 
@@ -19,15 +19,15 @@ from app.core.api.exceptions import BadRequestException, NotFoundException
 
 class TestTrainingRepository:
 
-    def test_create_training(self, db_session, create_company, create_quarter):
+    def test_create_training(self, db_session, create_company, create_season):
         company = create_company()
-        quarter = create_quarter(company_id=company.id, quarter_type=QuarterType.Q2, year=2026)
+        season = create_season(company_id=company.id)
         repo = TrainingRepository(db_session)
         training = repo.create(
             {
                 "company_id": company.id,
                 "pool_id": company.id,
-                "quarter_id": quarter.id,
+                "season_id": season.id,
                 "training_date": date(2026, 5, 1),
                 "start_time": time(10, 0),
                 "end_time": time(11, 0),
@@ -96,9 +96,9 @@ class TestTrainingRepository:
 
 class TestTrainingServiceCreate:
 
-    def test_create_training(self, db_session, create_company, create_quarter):
+    def test_create_training(self, db_session, create_company, create_season):
         company = create_company()
-        quarter = create_quarter(company_id=company.id, quarter_type=QuarterType.Q2, year=2026)
+        season = create_season(company_id=company.id)
         service = TrainingService(db_session)
         training = service.create(TrainingCreate(
             company_id=company.id,
@@ -109,14 +109,14 @@ class TestTrainingServiceCreate:
             price=300,
         ))
         assert training.id is not None
-        # quarter is resolved server-side from training_date (May 2026 -> Q2)
-        assert training.quarter_id == quarter.id
+        # season is resolved server-side from training_date; quarter_type is derived
+        assert training.season_id == season.id
         assert training.quarter_type == QuarterType.Q2
 
-    def test_create_training_without_quarter_raises(self, db_session, create_company):
+    def test_create_training_without_season_raises(self, db_session, create_company):
         company = create_company()
         service = TrainingService(db_session)
-        with pytest.raises(BadRequestException, match="You have to add Quarter for this date"):
+        with pytest.raises(BadRequestException, match="You have to add a Season covering this date"):
             service.create(TrainingCreate(
                 company_id=company.id,
                 pool_id=company.id,
@@ -177,9 +177,9 @@ class TestTrainingServiceUpdate:
 
 class TestTrainingEndpoints:
 
-    def test_create_training_endpoint(self, client, db_session, create_company, create_quarter, auth_headers):
+    def test_create_training_endpoint(self, client, db_session, create_company, create_season, auth_headers):
         headers, user, company = auth_headers
-        create_quarter(company_id=company.id, quarter_type=QuarterType.Q2, year=2026)
+        create_season(company_id=company.id)
         from unittest.mock import patch
         with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
             mock_get.return_value = headers["Authorization"].split(" ")[1]
@@ -234,3 +234,79 @@ class TestTrainingEndpoints:
             "price": 100,
         })
         assert response.status_code in (401, 403)
+
+
+def _call(client, method, url, headers, **kwargs):
+    from unittest.mock import patch
+    with patch("app.features.auth.auth_dependencies.get_access_token") as mock_get:
+        mock_get.return_value = headers["Authorization"].split(" ")[1]
+        return getattr(client, method)(url, headers=headers, **kwargs)
+
+
+class TestTrainingCompanyScope:
+    """Non-SUPER_ADMIN users only see and manage trainings of their own company."""
+
+    def test_list_only_own_company(self, client, create_company, create_training, auth_headers):
+        headers, _, company = auth_headers
+        mine = create_training(company_id=company.id)
+        other = create_training(company_id=create_company(name="Other Club").id)
+
+        response = _call(client, "get", "/api/training/", headers)
+        assert response.status_code == 200
+        ids = {i["id"] for i in response.json()["data"]["items"]}
+        assert mine.id in ids
+        assert other.id not in ids
+
+    def test_list_company_filter_cannot_widen_scope(self, client, create_company, create_training, auth_headers):
+        headers, _, _ = auth_headers
+        other_company = create_company(name="Other Club")
+        create_training(company_id=other_company.id)
+
+        response = _call(client, "get", f"/api/training/?company_id={other_company.id}", headers)
+        assert response.status_code == 200
+        assert response.json()["data"]["items"] == []
+
+    def test_get_other_company_training_403(self, client, create_company, create_training, auth_headers):
+        headers, _, _ = auth_headers
+        other = create_training(company_id=create_company(name="Other Club").id)
+
+        response = _call(client, "get", f"/api/training/{other.id}", headers)
+        assert response.status_code == 403
+
+    def test_update_other_company_training_403(self, client, create_company, create_training, auth_headers):
+        headers, _, _ = auth_headers
+        other = create_training(company_id=create_company(name="Other Club").id)
+
+        response = _call(client, "put", f"/api/training/{other.id}", headers, json={"price": 1})
+        assert response.status_code == 403
+
+    def test_move_training_to_other_company_403(self, client, create_company, create_training, auth_headers):
+        headers, _, company = auth_headers
+        training = create_training(company_id=company.id)
+        other_company = create_company(name="Other Club")
+
+        response = _call(client, "put", f"/api/training/{training.id}", headers,
+                         json={"company_id": other_company.id})
+        assert response.status_code == 403
+
+    def test_create_training_in_other_company_403(self, client, create_company, create_season, auth_headers):
+        headers, _, _ = auth_headers
+        other_company = create_company(name="Other Club")
+        create_season(company_id=other_company.id)
+
+        response = _call(client, "post", "/api/training/", headers, json={
+            "company_id": other_company.id,
+            "pool_id": other_company.id,
+            "training_date": "2026-05-01",
+            "start_time": "10:00:00",
+            "end_time": "11:00:00",
+            "price": 100,
+        })
+        assert response.status_code == 403
+
+    def test_super_admin_sees_other_company_training(self, client, create_company, create_training, super_admin_headers):
+        headers, _ = super_admin_headers
+        other = create_training(company_id=create_company(name="Other Club").id)
+
+        response = _call(client, "get", f"/api/training/{other.id}", headers)
+        assert response.status_code == 200

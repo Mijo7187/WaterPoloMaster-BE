@@ -39,4 +39,5 @@ router = create_crud_router(
         filters=ExerciseOptionFilters,
         dependencies=[Depends(check_permissions(Permission.VIEW_EXERCISE_OPTIONS))],
     ),
+    scope_by_company=True,
 )

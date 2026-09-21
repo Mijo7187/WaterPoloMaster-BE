@@ -10,6 +10,8 @@
 # 3. Creates database tables
 # ============================================
 
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -21,6 +23,7 @@ from app.features.auth.auth_router import router as auth_router
 from app.features.sifarnici.country.country_router import router as country_router
 from app.features.sifarnici.city.city_router import router as city_router
 from app.features.company.company_router import router as company_router
+from app.features.company.company_router import academy_router
 from app.features.training.training_router import router as training_router
 from app.features.wallet.wallet_router import router as wallet_router
 from app.features.payment.payment_router import router as payment_router
@@ -29,12 +32,30 @@ from app.features.sifarnici.income_category.income_category_router import router
 from app.features.training_users.training_users_router import router as training_users_router
 from app.features.training_segments.training_segments_router import router as training_segments_router
 from app.features.sifarnici.exercise_option.exercise_option_router import router as exercise_option_router
-from app.features.quarter.quarter_router import router as quarter_router
-from app.features.quarter_users.quarter_users_router import router as quarter_users_router
+from app.features.season.season_router import router as season_router
+from app.features.sifarnici.selection.selection_router import router as selection_router
+from app.features.season_selection_user.season_selection_user_router import router as season_selection_user_router
+from app.features.membership.membership_router import router as membership_router
+from app.features.contract.contract_router import router as contract_router
+from app.features.contract_installment.contract_installment_router import (
+    router as contract_installment_router,
+)
 from app.features.tournament.tournament_router import router as tournament_router
 from app.features.tournament_users.tournament_users_router import router as tournament_users_router
 from app.scheduler.scheduler import init_scheduler, scheduler
 
+
+
+# ============================================
+# LOGGING
+# ============================================
+# The "app.security" logger records blocked duplicates, rate-limit hits,
+# failed logins and lockouts — with IP and user-agent — so you can tell
+# WHO is flooding the API from the server logs.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 
 # ============================================
@@ -61,6 +82,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",   # React/Vue (Vite)
+        "http://localhost:5174",   # Vite fallback port
         "http://localhost:3000",   # React (CRA) / Next.js
         "http://localhost:4200",   # Angular
     ],
@@ -152,6 +174,12 @@ app.include_router(
     prefix="/api"
 )
 
+# Academy membership
+app.include_router(
+    academy_router,
+    prefix="/api"
+)
+
 # Trainings
 app.include_router(
     training_router,
@@ -200,15 +228,39 @@ app.include_router(
     prefix="/api"
 )
 
-# Quarter
+# Season
 app.include_router(
-    quarter_router,
+    season_router,
     prefix="/api"
 )
 
-# Quarter Users
+# Selection
 app.include_router(
-    quarter_users_router,
+    selection_router,
+    prefix="/api"
+)
+
+# Season Selection User
+app.include_router(
+    season_selection_user_router,
+    prefix="/api"
+)
+
+# Membership
+app.include_router(
+    membership_router,
+    prefix="/api"
+)
+
+# Contract
+app.include_router(
+    contract_router,
+    prefix="/api"
+)
+
+# Contract Installment
+app.include_router(
+    contract_installment_router,
     prefix="/api"
 )
 

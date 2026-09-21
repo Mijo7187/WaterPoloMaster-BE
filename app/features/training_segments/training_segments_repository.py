@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import func
 
 from app.common.crud.crud_repository import CrudRepository
+from app.features.company.company_model import Company
 from app.features.training_segments.training_segments_model import (
     SegmentExercise,
     SegmentSparring,
     SparringEvent,
+    SparringParticipant,
     TrainingSegment,
 )
 
@@ -32,6 +34,30 @@ class TrainingSegmentRepository(CrudRepository[TrainingSegment]):
             lambda: selectinload(TrainingSegment.sparring).selectinload(
                 SegmentSparring.events
             ),
+            lambda: selectinload(TrainingSegment.sparring).selectinload(
+                SegmentSparring.participants
+            ),
+            # Full nested company objects on the sparring detail (home/away),
+            # with their city/country/wallet so CompanyResponse serializes
+            # without per-row lazy loads.
+            lambda: selectinload(TrainingSegment.sparring)
+            .selectinload(SegmentSparring.home_company)
+            .selectinload(Company.city),
+            lambda: selectinload(TrainingSegment.sparring)
+            .selectinload(SegmentSparring.home_company)
+            .selectinload(Company.country),
+            lambda: selectinload(TrainingSegment.sparring)
+            .selectinload(SegmentSparring.home_company)
+            .selectinload(Company.wallet),
+            lambda: selectinload(TrainingSegment.sparring)
+            .selectinload(SegmentSparring.away_company)
+            .selectinload(Company.city),
+            lambda: selectinload(TrainingSegment.sparring)
+            .selectinload(SegmentSparring.away_company)
+            .selectinload(Company.country),
+            lambda: selectinload(TrainingSegment.sparring)
+            .selectinload(SegmentSparring.away_company)
+            .selectinload(Company.wallet),
         ]
 
     # ── Helpers ─────────────────────────────────────
@@ -65,10 +91,16 @@ class TrainingSegmentRepository(CrudRepository[TrainingSegment]):
         return self.get_by_id(segment.id)
 
     def create_sparring_segment(
-        self, segment_data: dict, sparring_data: dict, events: List[dict]
+        self,
+        segment_data: dict,
+        sparring_data: dict,
+        participants: List[dict],
+        events: List[dict],
     ) -> TrainingSegment:
         segment = TrainingSegment(**segment_data)
         sparring = SegmentSparring(**sparring_data)
+        for participant in participants:
+            sparring.participants.append(SparringParticipant(**participant))
         for event in events:
             sparring.events.append(SparringEvent(**event))
         segment.sparring = sparring
@@ -87,10 +119,22 @@ class TrainingSegmentRepository(CrudRepository[TrainingSegment]):
         self,
         sparring: SegmentSparring,
         fields: dict,
+        participants: Optional[List[dict]],
         events: Optional[List[dict]],
     ) -> None:
         for key, value in fields.items():
             setattr(sparring, key, value)
+        if participants is not None:
+            # Clear + flush the old rows before inserting the new roster.
+            # participant has a UNIQUE(segment_sparring_id, user_id); the unit of
+            # work emits INSERTs before DELETEs in a single flush, so a re-sent
+            # user would collide with its own still-present row. Flushing the
+            # deletes first avoids the false unique violation.
+            sparring.participants = []
+            self.db.flush()
+            sparring.participants = [
+                SparringParticipant(**participant) for participant in participants
+            ]
         if events is not None:
             sparring.events = [SparringEvent(**event) for event in events]
 

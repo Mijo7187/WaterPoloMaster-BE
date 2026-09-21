@@ -28,7 +28,7 @@ class TournamentRepository(CrudRepository[Tournament]):
             lambda: selectinload(Tournament.tournament_users),
             lambda: selectinload(Tournament.company),
             lambda: selectinload(Tournament.pool),
-            lambda: selectinload(Tournament.quarter),
+            lambda: selectinload(Tournament.season),
         ]
 
     def get_by_id_relations(self):
@@ -36,5 +36,5 @@ class TournamentRepository(CrudRepository[Tournament]):
             lambda: selectinload(Tournament.tournament_users),
             lambda: selectinload(Tournament.company),
             lambda: selectinload(Tournament.pool),
-            lambda: selectinload(Tournament.quarter),
+            lambda: selectinload(Tournament.season),
         ]

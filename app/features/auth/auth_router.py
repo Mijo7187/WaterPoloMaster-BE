@@ -7,12 +7,24 @@
 # - GET /auth/me - Get current user info
 # ============================================
 
-from fastapi import APIRouter, Depends
+import logging
+
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.db.database import get_db
-from app.core.api.exceptions import UnauthorizedException
+from app.core.api.exceptions import UnauthorizedException, TooManyRequestsException
 from app.core.api.responses import success_response
+from app.core.rate_limit import (
+    rate_limit,
+    reject_duplicate,
+    fingerprint,
+    get_client_ip,
+    hit,
+    peek,
+    reset,
+)
 from app.features.auth.auth_schemas import LoginRequest, TokenResponse, RefreshTokenRequest
 from app.features.auth.auth_service import AuthService
 from app.features.auth.auth_dependencies import get_current_active_user
@@ -28,12 +40,25 @@ router = APIRouter(
     tags=["auth"]
 )
 
+# Security events (blocked duplicates, lockouts) are logged here so the
+# source of abusive traffic can be identified from the server logs.
+logger = logging.getLogger("app.security")
+
 
 # ============================================
 # ENDPOINT 1: LOGIN
 # ============================================
-@router.post("/login")
+@router.post(
+    "/login",
+    dependencies=[
+        # Sustained ceiling: max N login attempts per minute from one IP
+        Depends(
+            rate_limit("login", settings.LOGIN_RATE_LIMIT_PER_MINUTE, 60)
+        )
+    ],
+)
 async def login(
+    request: Request,
     login_data: LoginRequest,
     db: Session = Depends(get_db)
 ):
@@ -72,23 +97,73 @@ async def login(
     **Errors:**
     - 401: Invalid email or password
     - 403: User account is inactive
+    - 429: Duplicate request, too many attempts, or email temporarily locked
     """
+    client_ip = get_client_ip(request)
+
+    # --------------------------------------------------
+    # GUARD 1: Identical login replayed within a few seconds
+    # --------------------------------------------------
+    # Same IP + same credentials arriving again immediately means a retry
+    # loop or a double-click, never a real second login attempt.
+    reject_duplicate(
+        "login",
+        fingerprint(client_ip, login_data.email, login_data.password),
+        settings.AUTH_DUPLICATE_WINDOW_SECONDS,
+    )
+
+    # --------------------------------------------------
+    # GUARD 2: Failed-password lockout for this email
+    # --------------------------------------------------
+    # Checked before touching the DB so a locked account costs us nothing.
+    # peek() does not increment — only a real failure below counts.
+    allowed, retry_after = peek(
+        "login:locked",
+        login_data.email.lower(),
+        settings.LOGIN_MAX_FAILED_ATTEMPTS,
+        settings.LOGIN_FAILED_WINDOW_SECONDS,
+    )
+    if not allowed:
+        logger.warning(
+            "Login blocked (account locked): email=%s ip=%s", login_data.email, client_ip
+        )
+        raise TooManyRequestsException(
+            "Too many failed login attempts. Try again later.",
+            retry_after=retry_after,
+        )
+
     # Create auth service
     auth_service = AuthService(db)
-    
+
     # Authenticate user
     user = auth_service.authenticate_user(
         email=login_data.email,
         password=login_data.password
     )
-    
+
     # Check if authentication failed
     if not user:
+        # Count this failure toward the lockout for this email
+        hit(
+            "login:locked",
+            login_data.email.lower(),
+            settings.LOGIN_MAX_FAILED_ATTEMPTS,
+            settings.LOGIN_FAILED_WINDOW_SECONDS,
+        )
+        logger.warning(
+            "Failed login: email=%s ip=%s ua=%s",
+            login_data.email,
+            client_ip,
+            request.headers.get("user-agent", "-"),
+        )
         raise UnauthorizedException("Incorrect email or password")
-    
+
+    # Success — clear the failed-attempt counter for this email
+    reset("login:locked", login_data.email.lower(), settings.LOGIN_FAILED_WINDOW_SECONDS)
+
     # Create tokens
     tokens = auth_service.create_tokens(user)
-    
+
     # Return token response
     return success_response(
         data={
@@ -105,8 +180,16 @@ async def login(
 # ============================================
 # ENDPOINT 2: REFRESH TOKEN
 # ============================================
-@router.post("/refresh")
+@router.post(
+    "/refresh",
+    dependencies=[
+        Depends(
+            rate_limit("refresh", settings.REFRESH_RATE_LIMIT_PER_MINUTE, 60)
+        )
+    ],
+)
 async def refresh_token(
+    request: Request,
     refresh_data: RefreshTokenRequest,
     db: Session = Depends(get_db)
 ):
@@ -153,9 +236,22 @@ async def refresh_token(
     5. Receives new access_token (and new refresh_token)
     6. Continues making API requests
     """
+    # --------------------------------------------------
+    # GUARD: same refresh token replayed within seconds
+    # --------------------------------------------------
+    # Refresh ROTATES the token: the first call invalidates the one it was
+    # given. A frontend that fires several refreshes in parallel therefore
+    # gets 401s on all but the first and often falls into a login loop.
+    # Blocking the replay here breaks that cycle.
+    reject_duplicate(
+        "refresh",
+        fingerprint(refresh_data.refresh_token),
+        settings.AUTH_DUPLICATE_WINDOW_SECONDS,
+    )
+
     # Create auth service
     auth_service = AuthService(db)
-    
+
     # Refresh tokens
     new_tokens = auth_service.refresh_access_token(refresh_data.refresh_token)
     

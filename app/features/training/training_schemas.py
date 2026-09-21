@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from app.common.crud.crud_schemas import CrudCreateSchema, CrudFilters, CrudResponseSchema, CrudUpdateSchema
 from app.features.training.training_model import TrainingStatus
-from app.features.quarter.quarter_model import QuarterType
+from app.utils.dateUtils import QuarterType
 from app.features.company.company_schemas import CompanyListResponse
 from app.features.training_segments.training_segments_schemas import TrainingSegmentResponse
 
@@ -45,7 +45,7 @@ class TrainingListResponse(CrudResponseSchema):
     price: int
     status: TrainingStatus
     number_of_players: int = 0
-    quarter_id: Optional[int] = None
+    season_id: Optional[int] = None
     quarter_type: Optional[QuarterType] = None
     company: Optional[CompanyListResponse] = None
     pool: Optional[CompanyListResponse] = None
@@ -64,7 +64,7 @@ class TrainingResponse(CrudResponseSchema):
     price: int
     status: TrainingStatus
     number_of_players: int = 0
-    quarter_id: Optional[int] = None
+    season_id: Optional[int] = None
     quarter_type: Optional[QuarterType] = None
     company: Optional[CompanyListResponse] = None
     pool: Optional[CompanyListResponse] = None
@@ -82,6 +82,7 @@ class TrainingFilters(CrudFilters):
     company_id: Optional[int] = None
     user_id: Optional[int] = None
     pool_id: Optional[int] = None
+    season_id: Optional[int] = None
     status: Optional[TrainingStatus] = None
     training_date__gte: Optional[date] = None
     training_date__lte: Optional[date] = None

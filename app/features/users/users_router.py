@@ -7,6 +7,8 @@ from app.core.api.exceptions import NotFoundException
 from app.core.api.responses import success_response
 from app.core.db.database import get_db
 from app.core.permissions import Permission, check_permissions
+from app.features.auth.auth_dependencies import get_current_active_user
+from app.features.users.users_models import User
 from app.features.users.users_schemas import (
     UserCreate,
     UserFilters,
@@ -25,20 +27,30 @@ router = create_crud_router(
         schema=UserUpdate,
         dependencies=[Depends(check_permissions(Permission.UPDATE_USER))],
     ),
-    get_by_id_conf=CrudEndpointConfig(schema=UserResponse),
+    get_by_id_conf=CrudEndpointConfig(
+        schema=UserResponse,
+        dependencies=[Depends(check_permissions(Permission.VIEW_USER))],
+    ),
     get_list_conf=CrudListEndpointConfig(
         schema=UserListResponse,
         filters=UserFilters,
+        dependencies=[Depends(check_permissions(Permission.VIEW_USERS))],
     ),
     enable_soft_delete=True,
     deactivate_dependencies=[Depends(check_permissions(Permission.DEACTIVATE_USER))],
+    scope_by_company=True,
 )
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_200_OK,
                dependencies=[Depends(check_permissions(Permission.DELETE_USER))])
-def delete_user(user_id: int, db: Session = Depends(get_db)):
+def delete_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
     service = UserService(db)
+    service.enforce_company_scope(user_id, current_user)
     if not service.delete_user(user_id):
         raise NotFoundException("User not found")
     return success_response(messages=["User deleted"])

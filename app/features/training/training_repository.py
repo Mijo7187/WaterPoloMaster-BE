@@ -32,7 +32,7 @@ class TrainingRepository(CrudRepository[Training]):
         return [
             lambda: selectinload(Training.company),
             lambda: selectinload(Training.pool),
-            lambda: selectinload(Training.quarter),
+            lambda: selectinload(Training.season),
             lambda: selectinload(Training.training_users),
         ]
 
@@ -40,7 +40,7 @@ class TrainingRepository(CrudRepository[Training]):
         return [
             lambda: selectinload(Training.company),
             lambda: selectinload(Training.pool),
-            lambda: selectinload(Training.quarter),
+            lambda: selectinload(Training.season),
             lambda: selectinload(Training.training_users),
             lambda: selectinload(Training.segments)
             .selectinload(TrainingSegment.exercises)

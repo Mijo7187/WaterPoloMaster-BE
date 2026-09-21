@@ -1,10 +1,10 @@
 from uuid import UUID
 
-from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator
+from pydantic import BaseModel, EmailStr, Field, ConfigDict, field_validator, model_validator
 from datetime import datetime, date
 from typing import Optional, List
 
-from app.features.users.users_models import UserRole
+from app.features.users.users_models import UserRole, PlayerPosition, DefaultTeam
 from app.features.wallet.wallet_schemas import WalletResponse
 from app.features.company.company_schemas import CompanyResponse
 from app.utils.dateUtils import parse_date
@@ -30,20 +30,23 @@ class UserCreate(UserBase):
     address_number: Optional[str] = None
     date_of_birth: date
     roles: List[UserRole] = [UserRole.USER]
-    company_id: Optional[int] = None
+    company_id: int
+    position: Optional[List[PlayerPosition]] = None
+    default_team: Optional[DefaultTeam] = None
 
     @field_validator("date_of_birth", mode="before")
     @classmethod
     def parse_date_of_birth(cls, v):
         return parse_date(v)
 
-    @field_validator("company_id", mode="after")
-    @classmethod
-    def validate_company_id(cls, v, info):
-        roles = info.data.get("roles", [])
-        if UserRole.SUPER_ADMIN not in roles and v is None:
-            raise ValueError("company_id is required for non-SUPER_ADMIN users")
-        return v
+    @model_validator(mode="after")
+    def validate_player_fields(self):
+        if UserRole.PLAYER in self.roles:
+            if not self.position:
+                raise ValueError("position is required for users with the PLAYER role")
+            if self.default_team is None:
+                raise ValueError("default_team is required for users with the PLAYER role")
+        return self
 
 
 class UserUpdate(CrudUpdateSchema):
@@ -58,6 +61,8 @@ class UserUpdate(CrudUpdateSchema):
     date_of_birth: Optional[date] = None
     roles: Optional[List[UserRole]] = None
     company_id: Optional[int] = None
+    position: Optional[List[PlayerPosition]] = None
+    default_team: Optional[DefaultTeam] = None
 
     @field_validator("date_of_birth", mode="before")
     @classmethod
@@ -74,6 +79,8 @@ class UserListResponse(CrudResponseSchema):
     roles: List[UserRole]
     company_id: Optional[int] = None
     phone_number: str
+    position: Optional[List[PlayerPosition]] = None
+    default_team: Optional[DefaultTeam] = None
     # date_of_birth: str
     # created_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -91,6 +98,8 @@ class UserResponse(CrudResponseSchema):
     date_of_birth: date
     roles: List[UserRole]
     company_id: Optional[int] = None
+    position: Optional[List[PlayerPosition]] = None
+    default_team: Optional[DefaultTeam] = None
     w_id: Optional[UUID] = None
     w: Optional[WalletResponse] = Field(None, validation_alias="wallet")
     company: Optional[CompanyResponse] = None

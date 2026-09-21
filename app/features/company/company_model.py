@@ -18,6 +18,7 @@ class CompanyType(str, enum.Enum):
     CLUB = "CLUB"
     POOL = "POOL"
     SUPPLIER = "SUPPLIER"
+    ACADEMY = "ACADEMY"
     
 
 
@@ -34,11 +35,27 @@ class Company(Base):
     email = Column(String(200), nullable=True)
     company_type = Column(String(20), default=CompanyType.CLUB.value, nullable=False, server_default=CompanyType.CLUB.value)
 
+    # Adjacency list: a company belongs to at most one ACADEMY company.
+    # NULL → not part of any academy.
+    academy_id = Column(Integer, ForeignKey("company.id"), nullable=True, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     w_id = Column(UUID(as_uuid=True), ForeignKey("wallet.id"), nullable=True)
     wallet = relationship("Wallet", foreign_keys=[w_id], uselist=False)
+
+    academy = relationship(
+        "Company",
+        remote_side=[id],
+        foreign_keys=[academy_id],
+        back_populates="academy_members",
+    )
+    academy_members = relationship(
+        "Company",
+        foreign_keys=[academy_id],
+        back_populates="academy",
+    )
 
     users = relationship("User", back_populates="company")
     city = relationship("City")

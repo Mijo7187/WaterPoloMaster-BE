@@ -9,15 +9,20 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import app.features.sifarnici.country.country_model
 import app.features.sifarnici.city.city_model
-import app.features.sifarnici.payment_type.payment_type_model
 import app.features.sifarnici.expense_category.expense_category_model
 import app.features.sifarnici.income_category.income_category_model
+import app.features.sifarnici.selection.selection_model
+import app.features.season_selection_user.season_selection_user_model
 import app.features.wallet.wallet_model
 import app.features.payment.payment_model
 import app.features.company.company_model
 import app.features.users.users_models
 import app.features.training.training_model
-import app.features.training_users_list.training_users_list_model
+import app.features.training_users.training_users_model
+import app.features.season.season_model
+import app.features.membership.membership_model
+import app.features.contract.contract_model
+import app.features.contract_installment.contract_installment_model
 
 from app.core.db.database import SessionLocal
 from app.features.users.users_models import User

@@ -34,4 +34,5 @@ router = create_crud_router(
         filters=TrainingFilters,
         dependencies=[Depends(check_permissions(Permission.VIEW_TRAININGS))],
     ),
+    scope_by_company=True,
 )

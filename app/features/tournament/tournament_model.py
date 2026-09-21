@@ -9,6 +9,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 
 from app.core.db.base import Base
+from app.utils.dateUtils import quarter_type_for_date
 
 
 # ============================================
@@ -25,7 +26,7 @@ class Tournament(Base):
     to_date = Column(Date, nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     description = Column(String(255), nullable=True)
-    quarter_id = Column(Integer, ForeignKey("quarter.id"), nullable=False)
+    season_id = Column(Integer, ForeignKey("season.id"), nullable=False)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -33,9 +34,8 @@ class Tournament(Base):
     # Relationships
     company = relationship("Company", foreign_keys=[company_id])
     pool = relationship("Company", foreign_keys=[pool_id])
-    quarter = relationship("Quarter")
+    season = relationship("Season")
     tournament_users = relationship("TournamentUsers", back_populates="tournament")
-    payments = relationship("Payment", back_populates="tournament")
 
     @property
     def number_of_users(self) -> int:
@@ -43,7 +43,9 @@ class Tournament(Base):
 
     @property
     def quarter_type(self):
-        return self.quarter.quarter_type if self.quarter else None
+        """Calendar quarter label, derived from the date. There is no quarter
+        table any more — the billing period is `season`."""
+        return quarter_type_for_date(self.from_date) if self.from_date else None
 
     def __repr__(self):
         return f"<Tournament(id={self.id}, from_date='{self.from_date}', to_date='{self.to_date}')>"

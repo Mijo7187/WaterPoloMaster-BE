@@ -39,6 +39,11 @@ class EventType(str, enum.Enum):
     PENALTY = "PENALTY"
 
 
+class SparringSide(str, enum.Enum):
+    HOME = "HOME"
+    AWAY = "AWAY"
+
+
 # ============================================
 # TRAINING SEGMENT - the timeline row
 # ============================================
@@ -123,9 +128,12 @@ class SegmentSparring(Base):
     segment_id = Column(
         Integer, ForeignKey("training_segment.id", ondelete="CASCADE"), nullable=False
     )
-    opponent_company_id = Column(Integer, ForeignKey("company.id"), nullable=False)
-    our_score = Column(Integer, nullable=True)
-    opponent_score = Column(Integer, nullable=True)
+    # The two clubs that met. Nullable: internal sparring (us vs. us) may leave
+    # both null or point both at our own club. side HOME -> home_company_id,
+    # side AWAY -> away_company_id. Scores are derived from side-tagged events,
+    # not stored.
+    home_company_id = Column(Integer, ForeignKey("company.id"), nullable=True)
+    away_company_id = Column(Integer, ForeignKey("company.id"), nullable=True)
     notes = Column(Text, nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -133,15 +141,49 @@ class SegmentSparring(Base):
 
     # Relationships
     segment = relationship("TrainingSegment", back_populates="sparring")
-    opponent_company = relationship("Company", foreign_keys=[opponent_company_id])
+    home_company = relationship("Company", foreign_keys=[home_company_id])
+    away_company = relationship("Company", foreign_keys=[away_company_id])
     events = relationship(
         "SparringEvent",
+        back_populates="sparring",
+        cascade="all, delete-orphan",
+    )
+    participants = relationship(
+        "SparringParticipant",
         back_populates="sparring",
         cascade="all, delete-orphan",
     )
 
     def __repr__(self):
         return f"<SegmentSparring(id={self.id}, segment_id={self.segment_id})>"
+
+
+# ============================================
+# SPARRING PARTICIPANT - roster: our players + their side (HOME / AWAY)
+# ============================================
+# One row per our-club player per sparring. For internal sparring the squad is
+# split across HOME and AWAY; for external play our players share one side and
+# the opponent (untracked per-player) is the other. Opponents are never
+# participants (they are not in our `users` table).
+class SparringParticipant(Base):
+    __tablename__ = "sparring_participant"
+    __table_args__ = (UniqueConstraint("segment_sparring_id", "user_id"),)
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    segment_sparring_id = Column(
+        Integer, ForeignKey("segment_sparring.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    side = Column(Enum(SparringSide, name="sparringside"), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    sparring = relationship("SegmentSparring", back_populates="participants")
+    user = relationship("User")
+
+    def __repr__(self):
+        return f"<SparringParticipant(id={self.id}, user_id={self.user_id}, side='{self.side}')>"
 
 
 # ============================================
@@ -154,9 +196,14 @@ class SparringEvent(Base):
     segment_sparring_id = Column(
         Integer, ForeignKey("segment_sparring.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    # None = opponent action (opponents are not in our `users` table).
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Which team the event counts for. DB-nullable for pre-existing rows; the
+    # create schema requires it.
+    side = Column(Enum(SparringSide, name="sparringside"), nullable=True)
     event_type = Column(Enum(EventType, name="eventtype"), nullable=False)
-    minute = Column(Integer, nullable=True)
+    # Game-clock stamp of the event as "mm:ss" or "hh:mm:ss" (time-picker value), not an int.
+    minute = Column(String(8), nullable=True)
     note = Column(String(255), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
