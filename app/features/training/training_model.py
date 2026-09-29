@@ -40,6 +40,18 @@ class Training(Base):
     pool_id = Column(Integer, ForeignKey("company.id"), nullable=False)
     season_id = Column(Integer, ForeignKey("season.id"), nullable=False)
 
+    # The squad being trained — (season, selection). Optional: an open session
+    # (goalkeepers across selections, a one-off camp) legitimately has none.
+    #
+    # season_id stays stored, but when group_id is set it is taken FROM the
+    # group rather than looked up by date, so the two can never disagree. See
+    # group_service.resolve_group_season_id. Never client-sent either way.
+    #
+    # SET NULL on delete: retiring a squad must not delete its training history.
+    group_id = Column(
+        Integer, ForeignKey("group.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -47,6 +59,7 @@ class Training(Base):
     company = relationship("Company", foreign_keys=[company_id])
     pool = relationship("Company", foreign_keys=[pool_id])
     season = relationship("Season")
+    group = relationship("Group")
     training_users = relationship("TrainingUsers", back_populates="training")
     segments = relationship(
         "TrainingSegment",

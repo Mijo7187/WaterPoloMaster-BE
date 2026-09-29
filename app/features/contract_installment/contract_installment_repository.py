@@ -107,6 +107,30 @@ class ContractInstallmentRepository(CrudRepository[ContractInstallment]):
             .scalar()
         )
 
+    def debt_ids_for(self, installment_ids: Iterable[int]) -> set:
+        """Which of these installments have a payment marked DEBT.
+
+        "Late" is decided once, by the daily debt job, and stored on the
+        payment. Reading it back from there keeps the installment's computed
+        status derived from its payments — no second source of truth, and no
+        date arithmetic at read time.
+        """
+        ids = list(installment_ids)
+        if not ids:
+            return set()
+
+        rows = (
+            self.db.query(Payment.payable_id)
+            .filter(
+                Payment.payable_type == PayableType.CONTRACT_INSTALLMENT,
+                Payment.payable_id.in_(ids),
+                Payment.status == PaymentStatus.DEBT,
+            )
+            .distinct()
+            .all()
+        )
+        return {row[0] for row in rows}
+
     def paid_amounts_for(self, installment_ids: Iterable[int]) -> Dict[int, Decimal]:
         """
         Sum of COMPLETED payments per installment — one grouped query, no N+1.

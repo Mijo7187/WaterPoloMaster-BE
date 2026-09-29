@@ -19,6 +19,7 @@ from app.features.contract.contract_schemas import (
     ContractFilters,
     ContractListResponse,
     ContractResponse,
+    ContractSummary,
     ContractUpdate,
 )
 from app.features.contract.contract_service import ContractService
@@ -43,6 +44,7 @@ router = create_crud_router(
     get_list_conf=CrudListEndpointConfig(
         schema=ContractListResponse,
         filters=ContractFilters,
+        summary_schema=ContractSummary,
         dependencies=[Depends(check_permissions(Permission.VIEW_CONTRACTS))],
     ),
     scope_by_company=True,

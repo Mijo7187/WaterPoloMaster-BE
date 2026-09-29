@@ -71,4 +71,4 @@ dist/
 # CLAUDE CODE - per-developer local overrides
 # ============================================
 CLAUDE.local.md
-.claude/
+.claude/settings.local.json

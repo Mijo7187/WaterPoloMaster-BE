@@ -31,7 +31,8 @@ import app.features.sifarnici.exercise_option.exercise_option_model  # noqa: F40
 import app.features.sifarnici.expense_category.expense_category_model  # noqa: F401,E402
 import app.features.sifarnici.income_category.income_category_model  # noqa: F401,E402
 import app.features.sifarnici.selection.selection_model  # noqa: F401,E402
-import app.features.season_selection_user.season_selection_user_model  # noqa: F401,E402
+import app.features.group.group_model  # noqa: F401,E402
+import app.features.group_user.group_user_model  # noqa: F401,E402
 import app.features.training.training_model  # noqa: F401,E402
 import app.features.training_users.training_users_model  # noqa: F401,E402
 import app.features.training_segments.training_segments_model  # noqa: F401,E402

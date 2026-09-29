@@ -16,7 +16,8 @@ import app.features.training_users.training_users_model
 import app.features.training_segments.training_segments_model
 import app.features.season.season_model
 import app.features.sifarnici.selection.selection_model
-import app.features.season_selection_user.season_selection_user_model
+import app.features.group.group_model
+import app.features.group_user.group_user_model
 import app.features.membership.membership_model
 import app.features.contract.contract_model
 import app.features.contract_installment.contract_installment_model

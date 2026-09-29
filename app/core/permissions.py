@@ -118,10 +118,14 @@ class Permission(str, enum.Enum):
     DELETE_SELECTION = "DELETE_SELECTION"
 
     # Season Selection User — which selection a user is in, per season
-    VIEW_SEASON_SELECTION_USERS = "VIEW_SEASON_SELECTION_USERS"
-    VIEW_SEASON_SELECTION_USER = "VIEW_SEASON_SELECTION_USER"
-    CREATE_SEASON_SELECTION_USER = "CREATE_SEASON_SELECTION_USER"
-    DELETE_SEASON_SELECTION_USER = "DELETE_SEASON_SELECTION_USER"
+    VIEW_GROUPS = "VIEW_GROUPS"
+    VIEW_GROUP = "VIEW_GROUP"
+    CREATE_GROUP = "CREATE_GROUP"
+    DELETE_GROUP = "DELETE_GROUP"
+    VIEW_GROUP_USERS = "VIEW_GROUP_USERS"
+    VIEW_GROUP_USER = "VIEW_GROUP_USER"
+    CREATE_GROUP_USER = "CREATE_GROUP_USER"
+    DELETE_GROUP_USER = "DELETE_GROUP_USER"
 
     # Membership
     VIEW_MEMBERSHIPS = "VIEW_MEMBERSHIPS"
@@ -200,8 +204,10 @@ ROLE_PERMISSIONS: dict[UserRole, list[Permission]] = {
         Permission.VIEW_SEASON,
         Permission.VIEW_SELECTIONS,
         Permission.VIEW_SELECTION,
-        Permission.VIEW_SEASON_SELECTION_USERS,
-        Permission.VIEW_SEASON_SELECTION_USER,
+        Permission.VIEW_GROUPS,
+        Permission.VIEW_GROUP,
+        Permission.VIEW_GROUP_USERS,
+        Permission.VIEW_GROUP_USER,
         Permission.VIEW_TOURNAMENTS,
         Permission.VIEW_TOURNAMENT,
         Permission.CREATE_TOURNAMENT,
@@ -265,10 +271,14 @@ ROLE_PERMISSIONS: dict[UserRole, list[Permission]] = {
         Permission.CREATE_SELECTION,
         Permission.UPDATE_SELECTION,
         Permission.DELETE_SELECTION,
-        Permission.VIEW_SEASON_SELECTION_USERS,
-        Permission.VIEW_SEASON_SELECTION_USER,
-        Permission.CREATE_SEASON_SELECTION_USER,
-        Permission.DELETE_SEASON_SELECTION_USER,
+        Permission.VIEW_GROUPS,
+        Permission.VIEW_GROUP,
+        Permission.CREATE_GROUP,
+        Permission.DELETE_GROUP,
+        Permission.VIEW_GROUP_USERS,
+        Permission.VIEW_GROUP_USER,
+        Permission.CREATE_GROUP_USER,
+        Permission.DELETE_GROUP_USER,
         Permission.VIEW_MEMBERSHIPS,
         Permission.VIEW_MEMBERSHIP,
         Permission.CREATE_MEMBERSHIP,

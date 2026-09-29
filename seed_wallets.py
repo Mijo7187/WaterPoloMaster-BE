@@ -12,7 +12,8 @@ import app.features.sifarnici.city.city_model
 import app.features.sifarnici.expense_category.expense_category_model
 import app.features.sifarnici.income_category.income_category_model
 import app.features.sifarnici.selection.selection_model
-import app.features.season_selection_user.season_selection_user_model
+import app.features.group.group_model
+import app.features.group_user.group_user_model
 import app.features.wallet.wallet_model
 import app.features.payment.payment_model
 import app.features.company.company_model

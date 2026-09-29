@@ -2,7 +2,7 @@
 # CONTRACT INSTALLMENT TESTS - per-row editing
 # ============================================
 
-from datetime import date, timedelta
+from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 
@@ -11,7 +11,12 @@ import pytest
 from app.core.api.exceptions import ValidationException
 from app.features.contract.contract_model import ContractType
 from app.features.contract.contract_schemas import ContractCreate
-from app.features.contract.contract_service import ContractService, _add_months
+from app.features.contract.contract_service import ContractService
+from app.features.membership.membership_model import BillingType, Program
+from app.features.membership.membership_schemas import MembershipCreate
+from app.features.membership.membership_service import MembershipService
+from app.features.sifarnici.selection.selection_model import Selection
+from app.scheduler.billing_jobs import _monthly_recurring_billing_job
 from app.features.contract_installment.contract_installment_model import (
     ContractInstallment,
 )
@@ -36,29 +41,35 @@ def _today(freeze_club_today):
     freeze_club_today(date(2026, 1, 15))
 
 
-def _monthly(start, count, amount):
-    items = []
-    period_start = start
-    for _ in range(count):
-        next_start = _add_months(period_start, 1)
-        items.append(dict(
-            period_start=period_start,
-            period_end=next_start - timedelta(days=1),
-            due_date=period_start,
-            amount=Decimal(amount),
-        ))
-        period_start = next_start
-    return items
+def _three_months(db_session, company, user):
+    """A MONTHLY membership that has been running since January.
 
+    Under recurring billing a contract accumulates one row per month, so the
+    three rows come from three runs of the job rather than a client-sent list.
+    `contract.amount` stays the MONTHLY price throughout.
+    """
+    selection = Selection(company_id=company.id, name=f"S{company.id}")
+    db_session.add(selection)
+    db_session.commit()
 
-def _quarter(db_session, company, user):
-    """A Jan-Mar 2026 MEMBERSHIP of 3 x 5000."""
-    return ContractService(db_session).create(ContractCreate(
+    plan = MembershipService(db_session).create(MembershipCreate(
+        company_id=company.id,
+        selection_id=selection.id,
+        name="Senior",
+        program=Program.WATERPOLO,
+        billing_type=BillingType.MONTHLY,
+        price=Decimal("5000.00"),
+    ))
+    contract = ContractService(db_session).create(ContractCreate(
         company_id=company.id,
         user_id=user.id,
         contract_type=ContractType.MEMBERSHIP,
-        installments_list=_monthly(date(2026, 1, 1), 3, "5000.00"),
+        membership_id=plan.id,
+        start_date=date(2026, 1, 1),
     ))
+    for month in (2, 3):
+        _monthly_recurring_billing_job(db_session, on_date=date(2026, month, 1))
+    return contract
 
 
 def _rows(db_session, contract):
@@ -91,7 +102,7 @@ class TestContractDetailRows:
     ):
         headers, _, company = auth_headers
         user = create_user(email="p@test.com", username="p", company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
         first = _rows(db_session, contract)[0]
         db_session.add(Payment(
             sender_wallet_id=_wallet(db_session, user.id, WalletOwnerType.USER).id,
@@ -125,7 +136,7 @@ class TestContractDetailRows:
 
         company = create_company()
         user = create_user(company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
 
         updated = ContractService(db_session).update(
             contract.id, ContractUpdate(signed_at=None)
@@ -136,13 +147,18 @@ class TestContractDetailRows:
 
 
 class TestEditOneRow:
+    """A row edit is a local correction to one period.
 
-    def test_row_edit_resyncs_the_contract(
+    It deliberately does NOT move the contract: `amount` is the
+    per-installment price, not a sum, and the dates are the contract's own.
+    """
+
+    def test_row_edit_leaves_the_contract_alone(
         self, client, db_session, create_user, auth_headers
     ):
         headers, _, company = auth_headers
         user = create_user(email="p@test.com", username="p", company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
         last = _rows(db_session, contract)[-1]
 
         r = _call(client, "put", f"/api/contract-installment/{last.id}", headers, json={
@@ -151,22 +167,24 @@ class TestEditOneRow:
 
         assert r.status_code == 200, r.text
         db_session.refresh(contract)
-        assert contract.amount == Decimal("17000.00")
-        assert contract.end_date == date(2026, 4, 30)
+        # Only that one period changed.
+        assert contract.amount == Decimal("5000.00")
+        assert contract.end_date is None
+        assert _rows(db_session, contract)[-1].amount == Decimal("7000.00")
 
     def test_amount_zero_is_accepted_and_counts_as_paid(
         self, db_session, create_user, create_company
     ):
         company = create_company()
         user = create_user(company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
         first = _rows(db_session, contract)[0]
         service = ContractInstallmentService(db_session)
 
         service.update(first.id, ContractInstallmentUpdate(amount=Decimal("0")))
 
         db_session.refresh(contract)
-        assert contract.amount == Decimal("10000.00")
+        assert contract.amount == Decimal("5000.00")
         assert service.get_by_id(first.id).payment_status == "paid"
 
     def test_overlapping_the_next_row_is_422(
@@ -174,7 +192,7 @@ class TestEditOneRow:
     ):
         headers, _, company = auth_headers
         user = create_user(email="p@test.com", username="p", company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
         first = _rows(db_session, contract)[0]
 
         r = _call(client, "put", f"/api/contract-installment/{first.id}", headers, json={
@@ -184,14 +202,14 @@ class TestEditOneRow:
         assert r.status_code == 422
         assert r.json()["errors"][0]["loc"] == ["period_start"]
         db_session.refresh(contract)
-        assert contract.amount == Decimal("15000.00")
+        assert contract.amount == Decimal("5000.00")
 
     def test_period_end_before_period_start_is_422(
         self, db_session, create_user, create_company
     ):
         company = create_company()
         user = create_user(company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
         first = _rows(db_session, contract)[0]
 
         with pytest.raises(ValidationException) as exc:
@@ -205,7 +223,7 @@ class TestEditOneRow:
     ):
         company = create_company()
         user = create_user(company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
 
         with pytest.raises(ValidationException):
             ContractInstallmentService(db_session).create(ContractInstallmentCreate(
@@ -216,12 +234,14 @@ class TestEditOneRow:
                 amount=Decimal("1000.00"),
             ))
 
-    def test_adding_a_row_after_the_last_one_extends_the_contract(
+    def test_adding_a_row_does_not_extend_the_contract(
         self, db_session, create_user, create_company
     ):
+        """An open-ended contract has no end to extend — the extra period is
+        simply one more thing owed."""
         company = create_company()
         user = create_user(company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
 
         ContractInstallmentService(db_session).create(ContractInstallmentCreate(
             contract_id=contract.id,
@@ -232,8 +252,9 @@ class TestEditOneRow:
         ))
 
         db_session.refresh(contract)
-        assert contract.amount == Decimal("20000.00")
-        assert contract.end_date == date(2026, 4, 30)
+        assert contract.amount == Decimal("5000.00")
+        assert contract.end_date is None
+        assert len(_rows(db_session, contract)) == 4
 
 
 class TestCompanyScope:
@@ -243,7 +264,7 @@ class TestCompanyScope:
     def other_row(self, db_session, create_company, create_user):
         other = create_company(name="Other Club")
         user = create_user(email="o@test.com", username="o", company_id=other.id)
-        contract = _quarter(db_session, other, user)
+        contract = _three_months(db_session, other, user)
         return contract, _rows(db_session, contract)[0]
 
     def test_get_other_company_row_is_403(self, client, other_row, auth_headers):
@@ -298,7 +319,7 @@ class TestCompanyScope:
     ):
         headers, _, company = auth_headers
         user = create_user(email="p@test.com", username="p", company_id=company.id)
-        contract = _quarter(db_session, company, user)
+        contract = _three_months(db_session, company, user)
 
         r = _call(
             client, "get",

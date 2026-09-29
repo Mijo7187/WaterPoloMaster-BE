@@ -4,7 +4,7 @@
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import ConfigDict, Field
 
@@ -12,13 +12,14 @@ from app.common.crud.crud_schemas import (
     CrudCreateSchema,
     CrudFilters,
     CrudResponseSchema,
+    CrudSummarySchema,
     CrudUpdateSchema,
 )
 from app.features.contract.contract_model import ContractStatus, ContractType
 from app.features.contract_installment.contract_installment_schemas import (
-    ContractInstallmentItem,
     ContractInstallmentResponse,
 )
+from app.features.membership.membership_model import BillingType
 from app.features.membership.membership_schemas import MembershipListResponse
 from app.features.users.users_schemas import UserListResponse
 
@@ -28,28 +29,19 @@ class ContractCreate(CrudCreateSchema):
     user_id: int
     contract_type: ContractType
 
-    # MEMBERSHIP: derived from installments_list when omitted — start_date is
-    # the first row's period_start, end_date the last row's period_end — and
-    # must match them when sent. STAFF: start_date is required, end_date
-    # optional (null = open-ended).
+    # MEMBERSHIP and STAFF both require start_date. end_date is DERIVED for
+    # MEMBERSHIP (null for MONTHLY, start + term_months for TERM) and may only
+    # be sent if it matches; for STAFF it is optional (null = open-ended).
     start_date: Optional[date] = None
     end_date: Optional[date] = None
 
-    # The catalog plan this contract is signed off, if any. MEMBERSHIP only.
-    # When installments_list is omitted it is built from the plan (split over
-    # `amount` if sent, else the plan's total); anything sent explicitly wins.
+    # REQUIRED for MEMBERSHIP — billing_type, amount and term_months are
+    # snapshotted from it at signing. Must be NULL for STAFF.
     membership_id: Optional[int] = None
 
-    # The agreed amount. For MEMBERSHIP it is the TOTAL for the whole term and
-    # must equal sum(installments_list) — omitted, it is derived. For STAFF it
-    # is the monthly salary, required and > 0.
+    # MEMBERSHIP: ignored, taken from the plan's `price`. STAFF: the monthly
+    # salary, required and > 0.
     amount: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
-
-    # MEMBERSHIP only — the term's schedule, one contract_installment row per
-    # entry, at least one, sorted by period_start and non-overlapping. A
-    # scholarship is a row with amount 0. STAFF installments come from the
-    # monthly salary job, never from here.
-    installments_list: Optional[List[ContractInstallmentItem]] = None
 
     # Ignored — status is computed from the dates (compute_contract_status).
     # Sending CANCELLED on create is rejected.
@@ -60,13 +52,12 @@ class ContractCreate(CrudCreateSchema):
 
 
 class ContractUpdate(CrudUpdateSchema):
-    # start_date / contract_type / membership_id / installments_list are
-    # intentionally NOT updatable (ignored if sent) — they fix the direction,
-    # the provenance and the installment schedule. Edit single installments
-    # via /contract-installment; contract.amount / end_date re-sync from them.
+    # start_date / contract_type / membership_id / billing_type / term_months
+    # are intentionally NOT updatable (ignored if sent) — they fix the
+    # direction, the provenance and the billing shape. Edit single installments
+    # via /contract-installment; that no longer moves the contract.
     #
-    # MEMBERSHIP: amount / end_date may only be sent if they still match the
-    # schedule (sum of installments, last period_end). STAFF: both editable.
+    # Setting end_date is how an open-ended MONTHLY contract is closed.
     end_date: Optional[date] = None
     amount: Optional[Decimal] = Field(None, ge=0, decimal_places=2)
     # Only CANCELLED is accepted; any other value is replaced by the status
@@ -84,14 +75,17 @@ class ContractListResponse(CrudResponseSchema):
     user_id: int
     membership_id: Optional[int] = None
     contract_type: ContractType
+    billing_type: Optional[BillingType] = None
+    term_months: Optional[int] = None
     amount: Decimal
     start_date: date
     end_date: Optional[date] = None
     status: ContractStatus
     signed_at: Optional[datetime] = None
     user: Optional[UserListResponse] = None
-    # The catalog plan this was signed off (provenance only — amount /
-    # the installments are the contract's own terms and always win).
+    # The catalog plan this was signed off (provenance only — the snapshotted
+    # billing_type / amount / term_months are the contract's own terms and
+    # always win).
     membership: Optional[MembershipListResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -104,17 +98,19 @@ class ContractResponse(CrudResponseSchema):
     user_id: int
     membership_id: Optional[int] = None
     contract_type: ContractType
+    billing_type: Optional[BillingType] = None
+    term_months: Optional[int] = None
     amount: Decimal
     start_date: date
     end_date: Optional[date] = None
     status: ContractStatus
     signed_at: Optional[datetime] = None
     user: Optional[UserListResponse] = None
-    # The catalog plan this was signed off (provenance only — amount /
-    # the installments are the contract's own terms and always win).
+    # The catalog plan this was signed off (provenance only).
     membership: Optional[MembershipListResponse] = None
-    # With paid_amount / payment_status — ContractService.get_by_id attaches
-    # them, so the edit screen needs no second call.
+    # Machine-generated, never client-sent. With paid_amount / payment_status —
+    # ContractService.get_by_id attaches them, so the edit screen needs no
+    # second call.
     installments: List[ContractInstallmentResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
@@ -130,6 +126,7 @@ class ContractFilters(CrudFilters):
     user_id: Optional[int] = None
     membership_id: Optional[int] = None
     contract_type: Optional[ContractType] = None
+    billing_type: Optional[BillingType] = None
     status: Optional[ContractStatus] = None
     start_date__gte: Optional[date] = None
     end_date__lte: Optional[date] = None
@@ -137,4 +134,20 @@ class ContractFilters(CrudFilters):
     # Not a contract column - handled by ContractRepository._apply_filter as a
     # date overlap with the season's [start_date, end_date]. Includes both
     # MEMBERSHIP and STAFF contracts; narrow with contract_type if needed.
+    # An open-ended MONTHLY contract (end_date NULL) matches every season from
+    # its start_date onward.
     season_id: Optional[int] = None
+
+
+class ContractSummary(CrudSummarySchema):
+    """Totals over the filtered contract list (all pages).
+
+    by_status carries every ContractStatus value, 0 where none match.
+    monthly_income / monthly_outcome are the recurring amounts of ACTIVE
+    contracts: MEMBERSHIP MONTHLY dues coming in, STAFF salaries going out.
+    TERM blocks are one-off and excluded.
+    """
+    count: int
+    by_status: Dict[str, int]
+    monthly_income: Decimal
+    monthly_outcome: Decimal

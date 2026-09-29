@@ -25,6 +25,7 @@ class CompanyCreate(CrudCreateSchema):
     phone_number: str = Field(..., max_length=50)
     email: EmailStr
     company_type: CompanyType
+    academy_id: Optional[int] = None
 
 
 class CompanyUpdate(CrudUpdateSchema):
@@ -36,6 +37,7 @@ class CompanyUpdate(CrudUpdateSchema):
     phone_number: Optional[str] = Field(None, max_length=50)
     email: Optional[EmailStr] = None
     company_type: Optional[CompanyType] = None
+    academy_id: Optional[int] = None
 
 
 class AcademyRef(CrudResponseSchema):

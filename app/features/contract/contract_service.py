@@ -3,9 +3,10 @@
 # ============================================
 
 import calendar
+import logging
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import List, Optional, Tuple
+from typing import Optional, Tuple
 
 from sqlalchemy.orm import Session
 
@@ -29,11 +30,13 @@ from app.features.contract_installment.contract_installment_model import (
 from app.features.contract_installment.contract_installment_repository import (
     ContractInstallmentRepository,
 )
-from app.features.membership.membership_model import Membership
+from app.features.membership.membership_model import BillingType, Membership
 from app.features.company.company_model import Company
 from app.features.users.users_models import User, UserRole
 from app.features.wallet.wallet_model import WalletOwnerType
 from app.utils.dateUtils import club_today
+
+logger = logging.getLogger(__name__)
 
 
 def _add_months(d: date, months: int) -> date:
@@ -52,41 +55,13 @@ def month_bounds(on_date: date) -> Tuple[date, date]:
     return first, last
 
 
-def generate_membership_installments(
-    total: Decimal, months_count: int, installments_count: int, term_start: date
-) -> List[dict]:
-    """Split one term's TOTAL into `installments_count` equal installments.
+def term_end_date(start_date: date, term_months: int) -> date:
+    """The inclusive last day of a TERM block starting on `start_date`.
 
-    Only used to seed `installments_list` from a catalog plan when the caller
-    sent none. Returns installments_list entries; due_date is always the
-    period start — every installment is billed up front.
-
-    The plan's installments_count is validated to divide its term evenly (see
-    divides_term_evenly), so every sub-period is a whole number of months. The
-    last installment absorbs any rounding remainder, so the amounts always sum
-    back to exactly `total`.
+    3 months from 2026-09-01 ends 2026-11-30, not 2026-12-01 — the same
+    inclusive convention the old installment generator used.
     """
-    count = installments_count or 1
-    months_each = months_count // count
-
-    total = Decimal(total)
-    base = (total / count).quantize(Decimal("0.01"))
-
-    installments: List[dict] = []
-    period_start = term_start
-    for index in range(count):
-        period_end = _add_months(period_start, months_each) - timedelta(days=1)
-        amount = base if index < count - 1 else total - base * (count - 1)
-        installments.append({
-            "period_start": period_start,
-            "period_end": period_end,
-            "due_date": period_start,
-            "amount": amount,
-            "waived": False,
-        })
-        period_start = period_end + timedelta(days=1)
-
-    return installments
+    return _add_months(start_date, term_months) - timedelta(days=1)
 
 
 def compute_contract_status(
@@ -115,130 +90,78 @@ def compute_contract_status(
     return ContractStatus.ENDED
 
 
-def _apply_membership_defaults(data: dict, db) -> dict:
-    """Build installments_list from the catalog plan when the caller sent none.
+def _snapshot_membership(data: dict, db) -> dict:
+    """MEMBERSHIP create: copy the plan's terms onto the contract.
 
-    This runs ONCE, at create. After it the contract is self-contained: the
-    numbers are its own, so editing or retiring the membership later cannot
-    move an already-signed contract. Explicit values always beat the plan —
-    a negotiated discount is just an `amount` sent alongside the plan id (the
-    plan is split over it), and a custom schedule is just an installments_list.
+    Runs ONCE, at create. After it the contract is self-contained — the
+    billing_type, the price and the term length are its own, so editing or
+    retiring the membership later cannot move an already-signed contract.
+
+    The shape of the contract follows billing_type:
+      MONTHLY -> end_date is NULL. Open-ended; the recurring job bills it every
+                 month until it is cancelled.
+      TERM    -> end_date = start_date + term_months (inclusive). One block.
     """
     membership_id = data.get("membership_id")
     if membership_id is None:
-        return data
+        raise ValidationException(
+            ["membership_id"],
+            "A MEMBERSHIP contract requires a membership_id — its billing "
+            "type, price and term are taken from the plan.",
+        )
 
     membership = db.get(Membership, membership_id)
     if not membership:
         raise NotFoundException("Membership not found")
 
-    if membership.company_id != data.get("company_id"):
+    # A club may sign off its academy's catalog: the academy owns the shared
+    # price list and opens the groups, while the contract stays down at the club.
+    company_id = data.get("company_id")
+    company = db.get(Company, company_id) if company_id is not None else None
+    allowed = {company_id}
+    if company is not None and company.academy_id is not None:
+        allowed.add(company.academy_id)
+
+    if membership.company_id not in allowed:
         raise ValidationException(
             ["membership_id"],
-            "The membership belongs to a different company than the contract.",
+            "The membership must belong to the contract's company or to its academy.",
         )
-
-    if data.get("installments_list"):
-        # A custom schedule — amount (if omitted) is its sum, not the plan's.
-        return data
 
     if data.get("start_date") is None:
         raise ValidationException(
-            ["start_date"],
-            "start_date is required to split a membership plan into installments.",
+            ["start_date"], "A MEMBERSHIP contract requires a start_date."
         )
 
-    if data.get("amount") is None:
-        data["amount"] = Decimal(membership.price_month) * membership.months_count
-    data["installments_list"] = generate_membership_installments(
-        data["amount"],
-        membership.months_count,
-        membership.installments_count,
-        data["start_date"],
-    )
+    billing_type = BillingType(membership.billing_type)
+    data["billing_type"] = billing_type
+    data["amount"] = Decimal(membership.price)
+    data["term_months"] = membership.term_months
 
-    return data
+    if billing_type == BillingType.MONTHLY:
+        derived_end = None
+    else:
+        derived_end = term_end_date(data["start_date"], membership.term_months)
 
-
-def _validate_membership_create(data: dict) -> dict:
-    """MEMBERSHIP create: the installment rows are the contract.
-
-    Rows: at least one; period_start <= period_end; sorted by period_start
-    and non-overlapping. amount / start_date / end_date must equal the sum /
-    first period_start / last period_end — derived when omitted.
-    """
-    items = data.get("installments_list") or []
-    if not items:
+    # The client may echo the derived end_date back, but may not contradict it.
+    if data.get("end_date") is not None and data["end_date"] != derived_end:
         raise ValidationException(
-            ["installments_list"],
-            "A MEMBERSHIP contract needs at least one installment "
-            "(a scholarship is one installment with amount 0).",
-        )
-
-    errors = []
-    for index, item in enumerate(items):
-        if item["period_end"] < item["period_start"]:
-            errors.append((
-                ["installments_list", index, "period_end"],
-                "period_end must be on or after period_start.",
-            ))
-        if index > 0 and item["period_start"] <= items[index - 1]["period_end"]:
-            errors.append((
-                ["installments_list", index, "period_start"],
-                "Installments must be sorted by period_start and must not "
-                "overlap — this one starts on or before the previous one ends.",
-            ))
-    if errors:
-        raise ValidationException(errors=errors)
-
-    total = sum(
-        (Decimal(item["amount"]) for item in items), Decimal("0")
-    ).quantize(Decimal("0.01"))
-    first_start = items[0]["period_start"]
-    last_end = items[-1]["period_end"]
-
-    if data.get("amount") is None:
-        data["amount"] = total
-    elif Decimal(data["amount"]) != total:
-        errors.append((
-            ["amount"],
-            f"amount must equal the sum of installments_list ({total}).",
-        ))
-
-    if data.get("start_date") is None:
-        data["start_date"] = first_start
-    elif data["start_date"] != first_start:
-        errors.append((
-            ["start_date"],
-            f"start_date must equal the first installment's period_start ({first_start}).",
-        ))
-
-    if data.get("end_date") is None:
-        data["end_date"] = last_end
-    elif data["end_date"] != last_end:
-        errors.append((
             ["end_date"],
-            f"end_date must equal the last installment's period_end ({last_end}).",
-        ))
+            f"A {billing_type.value} membership contract's end_date is "
+            f"{derived_end} — it is derived from the plan, not sent.",
+        )
+    data["end_date"] = derived_end
 
-    if errors:
-        raise ValidationException(errors=errors)
     return data
 
 
 def _validate_staff_create(data: dict) -> dict:
     """STAFF create: a monthly salary — amount, start_date, optional end_date.
 
-    No installments_list (the monthly salary job generates them) and no
-    membership_id (a salary is never sold from the catalog).
+    No membership_id (a salary is never sold from the catalog); its monthly
+    installments come from the recurring job.
     """
     errors = []
-    if data.get("installments_list"):
-        errors.append((
-            ["installments_list"],
-            "A STAFF contract takes no installments_list — its monthly "
-            "installments are generated by the salary job.",
-        ))
     if data.get("membership_id") is not None:
         errors.append((
             ["membership_id"],
@@ -308,8 +231,7 @@ def _contract_pre_create(data: dict, db, current_user: Optional[User] = None) ->
     if ContractType(data.get("contract_type")) == ContractType.STAFF:
         data = _validate_staff_create(data)
     else:
-        data = _apply_membership_defaults(data, db)
-        data = _validate_membership_create(data)
+        data = _snapshot_membership(data, db)
 
     user = db.get(User, data.get("user_id"))
     if not user:
@@ -327,38 +249,20 @@ def _contract_pre_create(data: dict, db, current_user: Optional[User] = None) ->
     return data
 
 
-def _validate_membership_update(existing: Contract, data: dict) -> None:
-    """MEMBERSHIP amount / end_date are the schedule's — they may be sent only
-    if they still match it. Change the schedule via /contract-installment."""
-    rows = sorted(existing.installments, key=lambda r: r.period_start)
-    total = sum((Decimal(r.amount) for r in rows), Decimal("0")).quantize(Decimal("0.01"))
-    last_end = rows[-1].period_end if rows else existing.end_date
+def _validate_contract_update(existing: Contract, data: dict) -> None:
+    """The same rules for both types now that `amount` means one thing.
 
-    errors = []
-    if "amount" in data and (
-        data["amount"] is None or Decimal(data["amount"]) != total
-    ):
-        errors.append((
-            ["amount"],
-            f"A MEMBERSHIP amount is the sum of its installments ({total}); "
-            f"edit the installments instead.",
-        ))
-    if "end_date" in data and data["end_date"] != last_end:
-        errors.append((
-            ["end_date"],
-            f"A MEMBERSHIP end_date is its last installment's period_end "
-            f"({last_end}); edit the installments instead.",
-        ))
-    if errors:
-        raise ValidationException(errors=errors)
-
-
-def _validate_staff_update(existing: Contract, data: dict) -> None:
+    `amount` is the per-installment price, so it is simply a positive number —
+    it is no longer tied to the sum of the installment rows. `end_date` is
+    freely settable: that is how an open-ended MONTHLY contract is closed.
+    Already-generated installments are left alone; editing one no longer moves
+    the contract either (see contract_installment_service).
+    """
     errors = []
     if "amount" in data and (
         data["amount"] is None or Decimal(data["amount"]) <= 0
     ):
-        errors.append((["amount"], "A STAFF contract requires an amount > 0."))
+        errors.append((["amount"], "A contract requires an amount > 0."))
     end = data.get("end_date", existing.end_date)
     if end is not None and end < existing.start_date:
         errors.append((["end_date"], "end_date must be on or after start_date."))
@@ -393,10 +297,7 @@ def _contract_pre_update(
     if not existing:
         return data
 
-    if ContractType(existing.contract_type) == ContractType.MEMBERSHIP:
-        _validate_membership_update(existing, data)
-    else:
-        _validate_staff_update(existing, data)
+    _validate_contract_update(existing, data)
 
     requested = data.pop("status", None)
     cancelled = (
@@ -418,14 +319,72 @@ def _contract_pre_update(
     return data
 
 
-def _contract_post_save(obj: Contract, db, current_user: Optional[User] = None) -> None:
-    """post_create / post_update: act on the computed status.
+def _auto_enrol_in_group(obj: Contract, db) -> None:
+    """Put a MEMBERSHIP contract's user in the current season's group.
 
-    ACTIVE STAFF gets the current month's salary installment (a mid-month
-    hire is not skipped until the next 1st). ENDED is settled immediately.
-    Both are idempotent, so re-saving raises nothing new.
+    The group is (the academy's current season, the membership's selection),
+    created on first use — signing the first player of a squad is what brings
+    the squad into existence. The academy is the club's `academy_id`, or the
+    club itself when it belongs to no academy.
+
+    Best-effort by design: with no current season, no membership or no
+    selection there is nothing to enrol into, so it is skipped and can be
+    added by hand. It must never fail the contract — this runs in post_create,
+    AFTER the repository has already committed the row, so raising here would
+    report a failure for a contract that exists.
+    """
+    if ContractType(obj.contract_type) != ContractType.MEMBERSHIP:
+        return
+    if obj.membership_id is None:
+        return
+
+    # Imported here: the group features are peers, and a module-level import
+    # risks a cycle through season / selection schemas.
+    from app.features.group.group_service import GroupService
+    from app.features.group_user.group_user_service import GroupUserService
+
+    try:
+        membership = db.get(Membership, obj.membership_id)
+        if not membership or membership.selection_id is None:
+            return
+
+        groups = GroupService(db)
+        company = groups.repository.get_company(obj.company_id)
+        if company is None:
+            return
+
+        academy_id = company.academy_id or company.id
+        season = groups.repository.get_current_season_for_company(academy_id)
+        if season is None:
+            logger.info(
+                "Contract %s: no current season for academy %s; skipping the "
+                "group enrolment.",
+                obj.id,
+                academy_id,
+            )
+            return
+
+        group = groups.get_or_create(season.id, membership.selection_id)
+        GroupUserService(db).enrol_if_absent(group.id, obj.user_id)
+    except Exception:
+        logger.exception(
+            "Contract %s: could not enrol user %s in the season's group; "
+            "the contract stands and the roster row can be added by hand.",
+            obj.id,
+            obj.user_id,
+        )
+        db.rollback()
+
+
+def _contract_post_save(obj: Contract, db, current_user: Optional[User] = None) -> None:
+    """post_create / post_update: act on the computed status, then enrol.
+
+    An ACTIVE contract gets the period it owes right away (a mid-month signing
+    is not skipped until the next 1st); ENDED is settled immediately. Both are
+    idempotent, so re-saving raises nothing new.
     """
     ContractService(db).apply_status_effects(obj, club_today())
+    _auto_enrol_in_group(obj, db)
 
 
 class ContractService(CrudService[Contract]):
@@ -475,8 +434,8 @@ class ContractService(CrudService[Contract]):
 
         Status is computed from the dates on every save and moved daily by
         the status job, so this only recomputes it NOW — useful if a stored
-        status looks stale. It never generates MEMBERSHIP installments (they
-        are written at create). A CANCELLED contract stays CANCELLED.
+        status looks stale. Generation is idempotent, so a contract that is
+        already ACTIVE gains nothing new. A CANCELLED contract stays CANCELLED.
         """
         contract = self.db.get(Contract, contract_id)
         if not contract:
@@ -517,58 +476,76 @@ class ContractService(CrudService[Contract]):
         return changed
 
     def apply_status_effects(self, contract: Contract, today: date) -> None:
-        """ACTIVE STAFF → this month's salary installment; ENDED → bill leftovers."""
-        status = ContractStatus(contract.status)
-        if (
-            status == ContractStatus.ACTIVE
-            and ContractType(contract.contract_type) == ContractType.STAFF
-        ):
-            if self._add_staff_month(contract, today) is not None:
-                self.db.commit()
-        elif status == ContractStatus.ENDED:
-            self.bill_ended(contract)
+        """Act on the computed status — what a fresh or newly-ACTIVE contract owes.
 
-    def sync_from_installments(self, contract: Contract) -> None:
-        """Re-derive a MEMBERSHIP contract's amount / start_date / end_date from
-        its installment rows, then its status. Called by the contract-installment
-        service after a single installment is created, edited or deleted.
+            ACTIVE + STAFF               → this month's salary installment
+            ACTIVE + MEMBERSHIP MONTHLY  → this month's installment + payment
+            ACTIVE + MEMBERSHIP TERM     → the one block installment + payment
+            ENDED                        → bill whatever is left
 
-        STAFF is left alone — its amount is the monthly salary, not a sum.
+        A missing wallet must not fail the contract save: this runs in
+        post_create / post_update, AFTER the repository has already committed
+        the row, so raising here would report a failure for a contract that
+        exists. The installment is written either way and the nightly billing
+        job raises its payment once the wallet is there.
+
+        MEMBERSHIP raises its payment on the spot so a player sees the charge
+        the moment they sign. STAFF deliberately keeps its original behaviour —
+        the row now, the payment from the recurring job — so this change does
+        not move salary billing.
         """
-        if ContractType(contract.contract_type) != ContractType.MEMBERSHIP:
+        status = ContractStatus(contract.status)
+        if status not in (ContractStatus.ACTIVE, ContractStatus.ENDED):
             return
 
-        rows = (
-            self.db.query(ContractInstallment)
-            .filter(ContractInstallment.contract_id == contract.id)
-            .order_by(ContractInstallment.period_start)
-            .all()
+        is_term = (
+            ContractType(contract.contract_type) == ContractType.MEMBERSHIP
+            and contract.billing_type is not None
+            and BillingType(contract.billing_type) == BillingType.TERM
         )
-        if not rows:
+
+        if status == ContractStatus.ENDED:
+            # A TERM block is owed for its whole period, so it is written even
+            # when the contract is already over — a block backdated at signing
+            # still has to be billed. bill_ended then picks it up.
+            if is_term and self._add_term_block(contract) is not None:
+                self.db.commit()
+            self.bill_ended(contract)
             return
 
-        contract.amount = sum(
-            (Decimal(r.amount) for r in rows), Decimal("0")
-        ).quantize(Decimal("0.01"))
-        contract.start_date = rows[0].period_start
-        contract.end_date = rows[-1].period_end
-        self.db.commit()
+        if ContractType(contract.contract_type) == ContractType.STAFF:
+            if self._add_month(contract, today) is not None:
+                self.db.commit()
+            return
 
-        self.refresh_status(contract, club_today())
+        try:
+            if is_term:
+                self.bill_term_block(contract)
+            else:
+                self.bill_contract_month(contract, today)
+        except BadRequestException:
+            logger.exception(
+                "Contract %s: installment written but its payment could not be "
+                "raised; the nightly billing job will retry.",
+                contract.id,
+            )
 
     # ------------------------------------------------------------------
-    # STAFF — one calendar-month salary installment at a time
+    # Generation — one calendar month at a time, or one TERM block
     # ------------------------------------------------------------------
 
-    def _add_staff_month(
+    def _add_month(
         self, contract: Contract, on_date: date
     ) -> Optional[ContractInstallment]:
-        """Add the salary installment for the month containing `on_date`.
+        """Add the installment for the month containing `on_date`.
 
         period_start = 1st of the month, period_end = its last day, amount =
         contract.amount, due on the 1st. Returns the new row, or None when the
         contract does not cover that month or the month already exists.
         Adds only — no commit.
+
+        Serves STAFF salaries and MEMBERSHIP MONTHLY alike: both are "one
+        period of `contract.amount` per ACTIVE month".
         """
         month_start, month_end = month_bounds(on_date)
 
@@ -577,11 +554,31 @@ class ContractService(CrudService[Contract]):
         if contract.end_date and contract.end_date < month_start:
             return None
 
+        return self._add_period(contract, month_start, month_end)
+
+    def _add_term_block(self, contract: Contract) -> Optional[ContractInstallment]:
+        """Add the single installment covering a TERM contract's whole block.
+
+        period_start = start_date, period_end = end_date, due on the start,
+        amount = the block price. Returns None if it already exists.
+        """
+        if contract.end_date is None:
+            return None
+        return self._add_period(contract, contract.start_date, contract.end_date)
+
+    def _add_period(
+        self, contract: Contract, period_start: date, period_end: date
+    ) -> Optional[ContractInstallment]:
+        """Write one installment unless that period_start already has one.
+
+        The existence check mirrors UNIQUE(contract_id, period_start), which
+        backs idempotency at the DB level. Adds only — no commit.
+        """
         exists = (
             self.db.query(ContractInstallment.id)
             .filter(
                 ContractInstallment.contract_id == contract.id,
-                ContractInstallment.period_start == month_start,
+                ContractInstallment.period_start == period_start,
             )
             .first()
         )
@@ -590,31 +587,50 @@ class ContractService(CrudService[Contract]):
 
         installment = ContractInstallment(
             contract_id=contract.id,
-            period_start=month_start,
-            period_end=month_end,
-            due_date=month_start,
+            period_start=period_start,
+            period_end=period_end,
+            due_date=period_start,
             amount=Decimal(contract.amount),
             waived=False,
         )
         self.db.add(installment)
         return installment
 
-    def bill_staff_month(self, contract: Contract, on_date: date) -> bool:
-        """Monthly salary job, one contract: add this month's installment and
-        raise its PENDING payment in one go. Returns True if a month was added.
+    def bill_contract_month(self, contract: Contract, on_date: date) -> bool:
+        """Recurring job, one contract: add this month's installment and raise
+        its PENDING payment in one go. Returns True if a month was added.
 
         Only a contract ACTIVE on `on_date` (by its dates, not just its stored
-        status) is paid. Idempotent — a month that already has an installment
+        status) is billed. Idempotent — a month that already has an installment
         is left alone. The installment is committed BEFORE the payment, so if
         the payment cannot be raised (e.g. a missing wallet) the month is
         still owed and the nightly job bills it once it can.
+
+        Drives both STAFF salaries and MEMBERSHIP MONTHLY dues. TERM contracts
+        never reach it.
         """
         if compute_contract_status(
             contract.start_date, contract.end_date, on_date, contract.status
         ) != ContractStatus.ACTIVE:
             return False
 
-        installment = self._add_staff_month(contract, on_date)
+        installment = self._add_month(contract, on_date)
+        if installment is None:
+            return False
+
+        self.db.commit()
+        self._raise_payment(contract, installment)
+        return True
+
+    def bill_term_block(self, contract: Contract) -> bool:
+        """A TERM contract's one-shot: the whole block as a single installment
+        plus its PENDING payment. Returns True if the block was added.
+
+        Idempotent, so re-saving or re-activating raises nothing new. The
+        recurring job never calls this — re-signing for the next block is a
+        new contract.
+        """
+        installment = self._add_term_block(contract)
         if installment is None:
             return False
 

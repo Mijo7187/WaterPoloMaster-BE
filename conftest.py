@@ -26,9 +26,10 @@ from app.features.company.company_model import Company
 from app.features.sifarnici.country.country_model import Country
 from app.features.training.training_model import Training, TrainingStatus
 from app.features.season.season_model import Season
-from app.features.sifarnici.selection.selection_model import Selection  # noqa: F401
-from app.features.season_selection_user.season_selection_user_model import (  # noqa: F401
-    SeasonSelectionUser,
+from app.features.sifarnici.selection.selection_model import Selection
+from app.features.group_user.group_user_model import GroupUser  # noqa: F401
+from app.features.group.group_model import (  # noqa: F401
+    Group,
 )
 from app.features.membership.membership_model import Membership  # noqa: F401
 from app.features.contract.contract_model import Contract  # noqa: F401
@@ -218,6 +219,30 @@ def create_user(db_session):
 
 
 @pytest.fixture()
+def create_selection(db_session):
+    """Factory fixture to create a selection (sifarnik) in the DB."""
+    def _create(company_id, name="U15", **kwargs):
+        selection = Selection(company_id=company_id, name=name, **kwargs)
+        db_session.add(selection)
+        db_session.commit()
+        db_session.refresh(selection)
+        return selection
+    return _create
+
+
+@pytest.fixture()
+def create_group(db_session):
+    """Factory fixture to create a group — (season, selection) — in the DB."""
+    def _create(season_id, selection_id):
+        group = Group(season_id=season_id, selection_id=selection_id)
+        db_session.add(group)
+        db_session.commit()
+        db_session.refresh(group)
+        return group
+    return _create
+
+
+@pytest.fixture()
 def create_season(db_session):
     """Factory fixture to create a season in the DB."""
     def _create(company_id, name="2026 Season",
@@ -273,6 +298,10 @@ def create_training(db_session, ensure_season):
     pool_id and season_id are NOT NULL on the model, so defaults are supplied:
     the pool defaults to the training's own company, and the season covering the
     training's date is found-or-created.
+
+    Pass group_id to attach the training to a squad — season_id is then taken
+    from that group, mirroring what the service does, so the fixture cannot
+    build a row whose season and group disagree.
     """
     def _create(company_id, pool_id=None, **kwargs):
         defaults = {
@@ -284,8 +313,14 @@ def create_training(db_session, ensure_season):
             "pool_id": pool_id if pool_id is not None else company_id,
         }
         defaults.update(kwargs)
-        season = ensure_season(company_id, defaults["training_date"])
-        training = Training(company_id=company_id, season_id=season.id, **defaults)
+
+        group_id = defaults.get("group_id")
+        if group_id is not None:
+            season_id = db_session.get(Group, group_id).season_id
+        else:
+            season_id = ensure_season(company_id, defaults["training_date"]).id
+
+        training = Training(company_id=company_id, season_id=season_id, **defaults)
         db_session.add(training)
         db_session.commit()
         db_session.refresh(training)

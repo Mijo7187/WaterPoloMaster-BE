@@ -2,18 +2,22 @@
 # BILLING JOBS - Scheduled fee generation
 # ============================================
 # Two jobs:
-#   * Monthly (1st of the month): every ACTIVE STAFF contract covering the
-#     month gets that month's salary installment (1st - last day, amount =
-#     contract.amount) and its PENDING payment (_monthly_staff_salary_job).
+#   * Monthly (1st of the month): every ACTIVE recurring contract covering the
+#     month gets that month's installment (1st - last day, amount =
+#     contract.amount) and its PENDING payment. Recurring means STAFF salaries
+#     and MEMBERSHIP MONTHLY dues — the same shape, one period per ACTIVE
+#     month. MEMBERSHIP TERM is never touched: its single block installment is
+#     written once at activation (_monthly_recurring_billing_job).
 #   * Nightly: turn due contract_installment rows into PENDING payments
-#     (_nightly_billing_job). This bills MEMBERSHIP installments — written at
-#     contract create from installments_list — as each due date arrives, and
-#     catches any STAFF month whose payment could not be raised.
+#     (_nightly_billing_job). This catches any installment whose payment could
+#     not be raised at generation time — typically a missing wallet.
+#   * Nightly, after that: move PENDING dues whose due date has passed to DEBT
+#     (_daily_debt_job). DEBT is still owed — it only marks the due as late.
 #
 # Idempotent: an installment that already has a payment is filtered out in SQL
-# (ContractInstallmentRepository.get_due_unbilled), and a STAFF month that
-# already exists is never regenerated. Waived installments and non-ACTIVE
-# contracts are excluded too.
+# (ContractInstallmentRepository.get_due_unbilled), and a month that already
+# exists is never regenerated (UNIQUE(contract_id, period_start)). Waived
+# installments and non-ACTIVE contracts are excluded too.
 # ============================================
 
 import logging
@@ -32,6 +36,7 @@ from app.features.contract_installment.contract_installment_repository import (
     ContractInstallmentRepository,
 )
 from app.features.payment.payment_model import PayableType, PaymentStatus
+from app.features.payment.payment_repository import PaymentRepository
 from app.features.payment.payment_schemas import PaymentCreate
 from app.features.payment.payment_service import PaymentService
 
@@ -48,28 +53,74 @@ def run_nightly_billing_job():
         db.close()
 
 
-def run_monthly_staff_salary_job():
+def run_daily_debt_job():
     db: Session = SessionLocal()
     try:
-        _monthly_staff_salary_job(db)
+        _daily_debt_job(db)
     finally:
         db.close()
 
 
-def _monthly_staff_salary_job(db: Session, on_date: date = None) -> int:
-    """Add this month's salary installment + PENDING payment to every ACTIVE
-    STAFF contract that covers the month.
+def _daily_debt_job(db: Session, on_date: date = None) -> int:
+    """Move PENDING installment dues whose due date has passed to DEBT.
+
+    A due starts PENDING on the day it is raised and becomes DEBT once its
+    due date is behind it. Nothing about the money changes — DEBT is still
+    outstanding and still counts in a wallet's totals (OUTSTANDING_STATUSES) —
+    it just says "this one is late", so the UI can chase it.
+
+    Runs after the billing job so a due raised tonight is judged against its
+    own due date rather than being flipped the moment it appears. Waived
+    installments and dues that have been settled are left alone.
+
+    Returns the number of payments moved.
+    """
+    today = on_date or club_today()
+
+    payments = PaymentRepository(db).get_pending_past_due(today)
+    moved = 0
+
+    for payment in payments:
+        # Skip-and-log rather than raise: one bad row must not abort the sweep.
+        try:
+            payment.status = PaymentStatus.DEBT
+            db.commit()
+            moved += 1
+        except Exception:
+            logger.exception(
+                "Could not mark payment %s as debt; skipping.", payment.id
+            )
+            db.rollback()
+            continue
+
+    return moved
+
+
+def run_monthly_recurring_billing_job():
+    db: Session = SessionLocal()
+    try:
+        _monthly_recurring_billing_job(db)
+    finally:
+        db.close()
+
+
+def _monthly_recurring_billing_job(db: Session, on_date: date = None) -> int:
+    """Add this month's installment + PENDING payment to every ACTIVE recurring
+    contract that covers the month — STAFF salaries and MEMBERSHIP MONTHLY dues.
 
     Runs on the 1st, but any day works — it always targets the calendar month
     containing `on_date`, and a month that already exists is skipped
     (UNIQUE(contract_id, period_start) backs that at the DB level).
+
+    MEMBERSHIP TERM contracts are not in the query at all, so re-running this
+    can never renew a block.
 
     Returns the number of installments created.
     """
     today = on_date or club_today()
     month_start, month_end = month_bounds(today)
 
-    contracts = ContractRepository(db).get_active_staff_for_month(
+    contracts = ContractRepository(db).get_active_recurring_for_month(
         month_start, month_end
     )
     service = ContractService(db)
@@ -77,13 +128,13 @@ def _monthly_staff_salary_job(db: Session, on_date: date = None) -> int:
 
     for contract in contracts:
         # Skip-and-log rather than raise: one bad contract (e.g. a missing
-        # wallet) must not abort the salary run for everyone else.
+        # wallet) must not abort the run for everyone else.
         try:
-            if service.bill_staff_month(contract, today):
+            if service.bill_contract_month(contract, today):
                 created += 1
         except Exception:
             logger.exception(
-                "Could not add the %s salary for contract %s; skipping.",
+                "Could not add the %s installment for contract %s; skipping.",
                 month_start,
                 contract.id,
             )

@@ -43,6 +43,11 @@ email-validator==2.2.0  # Email validation support for Pydantic
 apscheduler==3.10.4  # In-process cron scheduler for nightly training jobs
 
 # ============================================
+# EXCEL / IMPORT - One-off roster imports
+# ============================================
+openpyxl==3.1.5  # xlsx reader used by the seed scripts (values and cell fill colours)
+
+# ============================================
 # DEVELOPMENT TOOLS (Optional but recommended)
 # ============================================
 pytest==8.3.4  # Testing framework

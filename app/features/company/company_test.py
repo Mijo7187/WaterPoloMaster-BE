@@ -407,6 +407,123 @@ class TestAcademyMembershipService:
             service.remove_company_from_academy(other.id, club.id)
 
 
+class TestAcademyIdOnCompanyWrite:
+    """academy_id set directly through company create/update."""
+
+    def test_create_with_academy_id(self, db_session, create_company):
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        service = CompanyService(db_session)
+
+        company = service.create(CompanyCreate(
+            name="New Club",
+            address="1 Main St",
+            city_id=1,
+            country_id=1,
+            phone_number="+381111",
+            email="club@test.com",
+            company_type=CompanyType.CLUB,
+            academy_id=academy.id,
+        ))
+        assert company.academy_id == academy.id
+
+    def test_update_sets_academy_id(self, db_session, create_company):
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+        service = CompanyService(db_session)
+
+        updated = service.update(club.id, CompanyUpdate(academy_id=academy.id))
+        assert updated.academy_id == academy.id
+        assert updated.academy.name == "Academy"
+
+    def test_update_detaches_with_explicit_null(self, db_session, create_company):
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+        service = CompanyService(db_session)
+        service.add_company_to_academy(academy.id, club.id)
+
+        updated = service.update(club.id, CompanyUpdate(academy_id=None))
+        assert updated.academy_id is None
+
+    def test_update_without_academy_id_leaves_it_alone(self, db_session, create_company):
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+        service = CompanyService(db_session)
+        service.add_company_to_academy(academy.id, club.id)
+
+        updated = service.update(club.id, CompanyUpdate(name="Renamed"))
+        assert updated.academy_id == academy.id
+
+    def test_update_re_homes_between_academies(self, db_session, create_company):
+        """A direct write is a deliberate move — unlike POST /academy/{id}/companies."""
+        first = create_company(name="First", company_type=CompanyType.ACADEMY.value)
+        second = create_company(name="Second", company_type=CompanyType.ACADEMY.value)
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+        service = CompanyService(db_session)
+        service.add_company_to_academy(first.id, club.id)
+
+        updated = service.update(club.id, CompanyUpdate(academy_id=second.id))
+        assert updated.academy_id == second.id
+
+    def test_update_target_must_be_an_academy(self, db_session, create_company):
+        not_academy = create_company(name="Just a club", company_type=CompanyType.CLUB.value)
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+        service = CompanyService(db_session)
+
+        with pytest.raises(BadRequestException):
+            service.update(club.id, CompanyUpdate(academy_id=not_academy.id))
+
+    def test_update_academy_not_found(self, db_session, create_company):
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+        service = CompanyService(db_session)
+
+        with pytest.raises(NotFoundException):
+            service.update(club.id, CompanyUpdate(academy_id=9999))
+
+    def test_update_academy_cannot_contain_itself(self, db_session, create_company):
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        service = CompanyService(db_session)
+
+        with pytest.raises(BadRequestException):
+            service.update(academy.id, CompanyUpdate(academy_id=academy.id))
+
+    def test_update_academy_cannot_join_an_academy(self, db_session, create_company):
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        other = create_company(name="Other Academy", company_type=CompanyType.ACADEMY.value)
+        service = CompanyService(db_session)
+
+        with pytest.raises(BadRequestException):
+            service.update(other.id, CompanyUpdate(academy_id=academy.id))
+
+    def test_super_admin_update_endpoint(self, client, create_company, super_admin_headers):
+        headers, _ = super_admin_headers
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+        club = create_company(name="Club", company_type=CompanyType.CLUB.value)
+
+        response = _call(client, "put", f"/api/company/{club.id}", headers,
+                         json={"academy_id": academy.id})
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data["academy_id"] == academy.id
+        assert data["academy"]["name"] == "Academy"
+
+    def test_admin_cannot_set_academy_id_on_own_company(
+        self, client, create_company, auth_headers
+    ):
+        """UPDATE_COMPANY is not a licence to join an academy."""
+        headers, _, company = auth_headers
+        academy = create_company(name="Academy", company_type=CompanyType.ACADEMY.value)
+
+        response = _call(client, "put", f"/api/company/{company.id}", headers,
+                         json={"academy_id": academy.id})
+        assert response.status_code == 403
+
+    def test_admin_can_still_update_other_fields(self, client, auth_headers):
+        headers, _, company = auth_headers
+        response = _call(client, "put", f"/api/company/{company.id}", headers,
+                         json={"name": "Renamed"})
+        assert response.status_code == 200
+
+
 class TestAcademyMembershipEndpoints:
 
     def test_super_admin_full_flow(self, client, create_company, super_admin_headers):

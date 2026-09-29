@@ -28,6 +28,18 @@ class Tournament(Base):
     description = Column(String(255), nullable=True)
     season_id = Column(Integer, ForeignKey("season.id"), nullable=False)
 
+    # The squad entered — (season, selection). Optional: a club-wide or mixed
+    # tournament legitimately has none.
+    #
+    # season_id stays stored, but when group_id is set it is taken FROM the
+    # group rather than looked up by from_date, so the two can never disagree.
+    # See group_service.resolve_group_season_id. Never client-sent either way.
+    #
+    # SET NULL on delete: retiring a squad must not delete its tournament history.
+    group_id = Column(
+        Integer, ForeignKey("group.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -35,6 +47,7 @@ class Tournament(Base):
     company = relationship("Company", foreign_keys=[company_id])
     pool = relationship("Company", foreign_keys=[pool_id])
     season = relationship("Season")
+    group = relationship("Group")
     tournament_users = relationship("TournamentUsers", back_populates="tournament")
 
     @property

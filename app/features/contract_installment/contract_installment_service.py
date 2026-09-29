@@ -92,19 +92,15 @@ def _installment_pre_update(
     return data
 
 
-def _sync_contract(obj: ContractInstallment, db, current_user: Optional[User] = None) -> None:
-    """post_create / post_update: a MEMBERSHIP contract's amount / start_date /
-    end_date are its installments' sum / first period_start / last
-    period_end — re-derive them (and the status) after a single row changes."""
-    # Imported here: contract_service imports this feature's repository.
-    from app.features.contract.contract_service import ContractService
-
-    contract = db.get(Contract, obj.contract_id)
-    if contract:
-        ContractService(db).sync_from_installments(contract)
-
-
 class ContractInstallmentService(CrudService[ContractInstallment]):
+    """Per-row edits to what a contract owes.
+
+    There are deliberately no post hooks. Under the recurring billing model a
+    contract's `amount` is the per-installment price and its dates are its own,
+    so editing, adding or deleting one row is a local correction to a single
+    period — it must NOT re-derive the parent contract.
+    """
+
     def __init__(self, db: Session):
         super().__init__(
             db,
@@ -112,8 +108,6 @@ class ContractInstallmentService(CrudService[ContractInstallment]):
             hooks=CrudHooks(
                 pre_create=_installment_pre_create,
                 pre_update=_installment_pre_update,
-                post_create=_sync_contract,
-                post_update=_sync_contract,
             ),
         )
 
@@ -124,12 +118,19 @@ class ContractInstallmentService(CrudService[ContractInstallment]):
     def attach_payment_state(self, rows: List[ContractInstallment]) -> None:
         """Set `.paid_amount` and `.payment_status` on each row.
 
-        Derived from COMPLETED payments pointing at the installment, in one
-        grouped query for the whole page. `waived` short-circuits: a waived
-        period is settled by decision, not by money. A 0-amount row (a
+        Derived from the payments pointing at the installment, in two grouped
+        queries for the whole page — never stored. `waived` short-circuits: a
+        waived period is settled by decision, not by money. A 0-amount row (a
         scholarship) owes nothing, so it is "paid".
+
+        "debt" is an unpaid row whose due date has passed. It is read off the
+        payment the daily debt job marked, so lateness is decided in exactly
+        one place. A partially-paid row still reports "partial" — how much is
+        outstanding is the more useful fact there.
         """
-        paid = self.repository.paid_amounts_for([r.id for r in rows])
+        ids = [r.id for r in rows]
+        paid = self.repository.paid_amounts_for(ids)
+        in_debt = self.repository.debt_ids_for(ids)
 
         for row in rows:
             amount_paid = paid.get(row.id, Decimal("0"))
@@ -140,7 +141,7 @@ class ContractInstallmentService(CrudService[ContractInstallment]):
             elif Decimal(row.amount) <= 0:
                 row.payment_status = "paid"
             elif amount_paid <= 0:
-                row.payment_status = "pending"
+                row.payment_status = "debt" if row.id in in_debt else "pending"
             elif amount_paid < Decimal(row.amount):
                 row.payment_status = "partial"
             else:
@@ -200,15 +201,11 @@ class ContractInstallmentService(CrudService[ContractInstallment]):
         return obj
 
     def delete(self, obj_id: int) -> None:
+        """Drop one period. The contract is left untouched — and the recurring
+        job will write the period again on its next run if the contract is
+        still ACTIVE and covers it."""
         obj = self.db.get(ContractInstallment, obj_id)
         if not obj:
             raise NotFoundException("Contract installment not found")
-        contract_id = obj.contract_id
         self.db.delete(obj)
         self.db.commit()
-        contract = self.db.get(Contract, contract_id)
-        if contract:
-            # Imported here: contract_service imports this feature's repository.
-            from app.features.contract.contract_service import ContractService
-
-            ContractService(self.db).sync_from_installments(contract)

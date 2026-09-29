@@ -3,6 +3,7 @@
 # ============================================
 
 import pytest
+from decimal import Decimal
 from datetime import date, time
 
 from app.features.training.training_service import TrainingService
@@ -125,6 +126,214 @@ class TestTrainingServiceCreate:
                 end_time=time(11, 0),
                 price=300,
             ))
+
+
+# ============================================
+# GROUP LINK — the squad a training belongs to
+# ============================================
+# group_id is optional, and when it is set it — not the date — decides the
+# season. The two columns can therefore never disagree.
+
+class TestTrainingGroupLink:
+
+    def test_group_decides_the_season(
+        self, db_session, create_company, create_season, create_selection, create_group
+    ):
+        company = create_company()
+        season = create_season(company_id=company.id)
+        selection = create_selection(company_id=company.id)
+        group = create_group(season_id=season.id, selection_id=selection.id)
+
+        service = TrainingService(db_session)
+        training = service.create(TrainingCreate(
+            company_id=company.id,
+            pool_id=company.id,
+            training_date=date(2026, 5, 1),
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+            price=300,
+            group_id=group.id,
+        ))
+
+        assert training.group_id == group.id
+        assert training.season_id == group.season_id
+
+    def test_group_of_the_academy_works_for_a_member_club(
+        self, db_session, create_company, create_season, create_selection, create_group
+    ):
+        """The club has no season of its own — the academy owns it.
+
+        This is the case the plain date lookup cannot serve: resolve_season_id
+        matches Season.company_id against the club and would raise. Going
+        through the group resolves it against the academy instead.
+        """
+        academy = create_company(name="Academy", company_type="ACADEMY")
+        club = create_company(name="Member Club", academy_id=academy.id)
+        season = create_season(company_id=academy.id)
+        selection = create_selection(company_id=club.id)
+        group = create_group(season_id=season.id, selection_id=selection.id)
+
+        service = TrainingService(db_session)
+        training = service.create(TrainingCreate(
+            company_id=club.id,
+            pool_id=club.id,
+            training_date=date(2026, 5, 1),
+            start_time=time(10, 0),
+            end_time=time(11, 0),
+            price=300,
+            group_id=group.id,
+        ))
+
+        assert training.season_id == season.id
+
+    def test_date_outside_the_groups_season_raises(
+        self, db_session, create_company, create_season, create_selection, create_group
+    ):
+        company = create_company()
+        season = create_season(company_id=company.id)  # 2026-01-01 .. 2026-12-31
+        selection = create_selection(company_id=company.id)
+        group = create_group(season_id=season.id, selection_id=selection.id)
+
+        service = TrainingService(db_session)
+        with pytest.raises(BadRequestException, match="outside the group's season"):
+            service.create(TrainingCreate(
+                company_id=company.id,
+                pool_id=company.id,
+                training_date=date(2027, 5, 1),
+                start_time=time(10, 0),
+                end_time=time(11, 0),
+                price=300,
+                group_id=group.id,
+            ))
+
+    def test_group_from_another_academy_raises(
+        self, db_session, create_company, create_season, create_selection, create_group
+    ):
+        company = create_company()
+        other = create_company(name="Other Club")
+        season = create_season(company_id=other.id)
+        selection = create_selection(company_id=other.id)
+        group = create_group(season_id=season.id, selection_id=selection.id)
+
+        service = TrainingService(db_session)
+        with pytest.raises(BadRequestException, match="same academy"):
+            service.create(TrainingCreate(
+                company_id=company.id,
+                pool_id=company.id,
+                training_date=date(2026, 5, 1),
+                start_time=time(10, 0),
+                end_time=time(11, 0),
+                price=300,
+                group_id=group.id,
+            ))
+
+    def test_unknown_group_raises(self, db_session, create_company, create_season):
+        company = create_company()
+        create_season(company_id=company.id)
+        service = TrainingService(db_session)
+        with pytest.raises(NotFoundException, match="Group not found"):
+            service.create(TrainingCreate(
+                company_id=company.id,
+                pool_id=company.id,
+                training_date=date(2026, 5, 1),
+                start_time=time(10, 0),
+                end_time=time(11, 0),
+                price=300,
+                group_id=999999,
+            ))
+
+    def test_moving_the_group_re_derives_the_season(
+        self, db_session, create_company, create_season, create_selection, create_group,
+        create_training,
+    ):
+        company = create_company()
+        old_season = create_season(company_id=company.id)
+        new_season = create_season(
+            company_id=company.id,
+            name="2027 Season",
+            start_date=date(2027, 1, 1),
+            end_date=date(2027, 12, 31),
+            is_current=False,
+        )
+        selection = create_selection(company_id=company.id)
+        old_group = create_group(season_id=old_season.id, selection_id=selection.id)
+        new_group = create_group(season_id=new_season.id, selection_id=selection.id)
+
+        training = create_training(
+            company_id=company.id, training_date=date(2026, 5, 1), group_id=old_group.id
+        )
+        assert training.season_id == old_season.id
+
+        service = TrainingService(db_session)
+        updated = service.update(training.id, TrainingUpdate(
+            group_id=new_group.id, training_date=date(2027, 5, 1)
+        ))
+
+        assert updated.group_id == new_group.id
+        assert updated.season_id == new_season.id
+
+    def test_detaching_the_group_falls_back_to_the_date(
+        self, db_session, create_company, create_season, create_selection, create_group,
+        create_training,
+    ):
+        company = create_company()
+        season = create_season(company_id=company.id)
+        selection = create_selection(company_id=company.id)
+        group = create_group(season_id=season.id, selection_id=selection.id)
+
+        training = create_training(
+            company_id=company.id, training_date=date(2026, 5, 1), group_id=group.id
+        )
+
+        service = TrainingService(db_session)
+        updated = service.update(training.id, TrainingUpdate(group_id=None))
+
+        assert updated.group_id is None
+        # Still in a season — resolved from the date, as an open session is.
+        assert updated.season_id == season.id
+
+    def test_editing_an_unrelated_field_leaves_the_season_alone(
+        self, db_session, create_company, create_season, create_selection, create_group,
+        create_training,
+    ):
+        company = create_company()
+        season = create_season(company_id=company.id)
+        selection = create_selection(company_id=company.id)
+        group = create_group(season_id=season.id, selection_id=selection.id)
+        training = create_training(company_id=company.id, group_id=group.id)
+
+        service = TrainingService(db_session)
+        updated = service.update(training.id, TrainingUpdate(price=777))
+
+        assert updated.price == 777
+        assert updated.season_id == season.id
+        assert updated.group_id == group.id
+
+    def test_filter_by_group_id(
+        self, db_session, create_company, create_season, create_selection, create_group,
+        create_training,
+    ):
+        company = create_company()
+        season = create_season(company_id=company.id)
+        u15 = create_selection(company_id=company.id, name="U15")
+        u17 = create_selection(company_id=company.id, name="U17")
+        u15_group = create_group(season_id=season.id, selection_id=u15.id)
+        u17_group = create_group(season_id=season.id, selection_id=u17.id)
+
+        mine = create_training(company_id=company.id, group_id=u15_group.id)
+        create_training(company_id=company.id, group_id=u17_group.id)
+        open_session = create_training(company_id=company.id)  # no group
+
+        repo = TrainingRepository(db_session)
+
+        items, total = repo.get_list(filters=TrainingFilters(group_id=u15_group.id))
+        assert total == 1
+        assert items[0].id == mine.id
+        # The squad's selection rides along on the list response.
+        assert items[0].group.selection.name == "U15"
+
+        items, total = repo.get_list(filters=TrainingFilters(group_id__isnull=True))
+        assert [i.id for i in items] == [open_session.id]
 
 
 class TestTrainingServiceGet:
@@ -310,3 +519,37 @@ class TestTrainingCompanyScope:
 
         response = _call(client, "get", f"/api/training/{other.id}", headers)
         assert response.status_code == 200
+
+
+# ============================================
+# List summary
+# ============================================
+
+class TestTrainingSummary:
+
+    def test_counts_and_total_price(self, db_session, create_company, create_training):
+        company = create_company()
+        create_training(company_id=company.id, price=100)
+        create_training(company_id=company.id, price=50, status=TrainingStatus.FINISHED.value)
+        create_training(company_id=company.id, price=999, status=TrainingStatus.CANCELLED.value)
+
+        summary = TrainingService(db_session).get_summary(TrainingFilters(company_id=company.id))
+        assert summary["count"] == 3
+        assert summary["by_status"] == {
+            "FINISHED": 1, "IN_PROCESS": 0, "CANCELLED": 1, "INCOMING": 1,
+        }
+        assert summary["total_price"] == Decimal("150")
+
+    def test_list_endpoint_carries_scoped_summary(self, client, create_company, create_training, auth_headers):
+        headers, _, company = auth_headers
+        create_training(company_id=company.id, price=100)
+        create_training(company_id=create_company(name="Other Club").id, price=500)
+
+        data = _call(client, "get", "/api/training/", headers).json()["data"]
+        assert data["summary"]["count"] == 1
+        assert Decimal(str(data["summary"]["total_price"])) == Decimal("100")
+
+    def test_list_without_summary_returns_null(self, client, super_admin_headers):
+        headers, _ = super_admin_headers
+        data = _call(client, "get", "/api/company/", headers).json()["data"]
+        assert data["summary"] is None

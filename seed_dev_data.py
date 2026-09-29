@@ -8,9 +8,11 @@ membership + contract → contract_installment chain:
   * an admin user and two player users, each with a wallet
   * one season, marked is_current (trainings and tournaments hang off it)
   * two selections (U15, Masters) — the age-group catalog
-  * membership rows for BOTH programs — a flat per-company price catalog,
-    tied to neither a season nor a selection
-  * one MEMBERSHIP contract (installments seeded from its plan)
+  * membership rows for BOTH programs and BOTH billing types — a plan prices
+    one selection, either MONTHLY (open-ended) or TERM (one fixed block)
+  * one MONTHLY and one TERM contract, so both generation paths are covered,
+    each with the installment(s) the machine wrote at signing
+  * the group (season + selection) each contract's player was enrolled in
 
 Safe to re-run after a reset: every step is find-or-create, so running it twice
 changes nothing the second time.
@@ -34,7 +36,8 @@ import app.features.sifarnici.exercise_option.exercise_option_model  # noqa: F40
 import app.features.sifarnici.expense_category.expense_category_model  # noqa: F401,E402
 import app.features.sifarnici.income_category.income_category_model  # noqa: F401,E402
 import app.features.sifarnici.selection.selection_model  # noqa: F401,E402
-import app.features.season_selection_user.season_selection_user_model  # noqa: F401,E402
+import app.features.group.group_model  # noqa: F401,E402
+import app.features.group_user.group_user_model  # noqa: F401,E402
 import app.features.training.training_model  # noqa: F401,E402
 import app.features.training_users.training_users_model  # noqa: F401,E402
 import app.features.training_segments.training_segments_model  # noqa: F401,E402
@@ -57,6 +60,7 @@ from app.features.contract.contract_model import (  # noqa: E402
 from app.features.contract.contract_schemas import ContractCreate  # noqa: E402
 from app.features.contract.contract_service import ContractService  # noqa: E402
 from app.features.membership.membership_model import (  # noqa: E402
+    BillingType,
     Membership,
     Program,
 )
@@ -163,32 +167,37 @@ def get_or_create_selection(db, company, name, age_min=None, age_max=None):
 
 
 def get_or_create_membership(
-    db, company, name, program, months_count, price_month, installments_count=1
+    db, company, selection, name, program, billing_type, price, term_months=None
 ):
+    """One plan per (company, selection, program, billing_type) — the catalog key."""
     row = (
         db.query(Membership)
         .filter(
             Membership.company_id == company.id,
-            Membership.name == name,
+            Membership.selection_id == selection.id,
             Membership.program == program,
+            Membership.billing_type == billing_type,
         )
         .first()
     )
     if not row:
         row = Membership(
             company_id=company.id,
+            selection_id=selection.id,
             name=name,
             program=program,
-            months_count=months_count,
-            price_month=price_month,
-            installments_count=installments_count,
+            billing_type=billing_type,
+            price=price,
+            term_months=term_months,
         )
         db.add(row)
         db.flush()
-        print(
-            f"  [MEMBER]  created {name} ({program.value}) = "
-            f"{price_month}/mo x {months_count}"
+        shape = (
+            f"{price}/month, open-ended"
+            if billing_type == BillingType.MONTHLY
+            else f"{price} for a {term_months}-month block"
         )
+        print(f"  [MEMBER]  created {name} ({program.value}) = {shape}")
     return row
 
 
@@ -201,16 +210,17 @@ def get_or_create_contract(db, company, user, membership):
     if contract:
         return contract, False
 
-    # Created through the service so the plan seeds amount + installments_list.
-    # The terms are copied here, not read from the catalog later — editing the
-    # membership must not move an already-signed contract.
+    # Created through the service, which snapshots billing_type / amount /
+    # term_months off the plan and writes the period(s) owed. The terms are
+    # copied here, not read from the catalog later — editing the membership
+    # must not move an already-signed contract.
     contract = ContractService(db).create(ContractCreate(
         company_id=company.id,
         user_id=user.id,
         contract_type=ContractType.MEMBERSHIP,
         membership_id=membership.id,
-        # end_date and status are derived: the last installment's period_end
-        # and the status those dates imply today.
+        # end_date and status are derived: null for MONTHLY, start + term for
+        # TERM, and the status those dates imply today.
         start_date=SEASON_START,
         signed_at=datetime.now(),
     ))
@@ -233,36 +243,40 @@ def seed():
             db, "player1@dev.local", "Petar", "Player", club,
             [UserRole.PLAYER, UserRole.USER], date(2011, 5, 20),
         )
-        get_or_create_user(
+        player_two = get_or_create_user(
             db, "player2@dev.local", "Marko", "Plivac", club,
             [UserRole.PLAYER, UserRole.USER], date(2010, 9, 3),
         )
 
-        season = get_or_create_season(db, club)
+        get_or_create_season(db, club)
 
-        get_or_create_selection(db, club, "U15", age_min=13, age_max=15)
-        get_or_create_selection(db, club, "Masters", age_min=35)
+        u15 = get_or_create_selection(db, club, "U15", age_min=13, age_max=15)
+        masters = get_or_create_selection(db, club, "Masters", age_min=35)
 
-        # A flat price catalog. Each plan names its own term length in months,
-        # so a club can sell a 1-, 3- or 10-month plan with no schema change.
+        # The price catalog. A plan prices ONE selection and says how it bills:
+        # MONTHLY keeps charging until the contract is cancelled, TERM is a
+        # single block you re-sign for.
         u15_waterpolo = get_or_create_membership(
-            db, club, "U15 Waterpolo", Program.WATERPOLO,
-            months_count=1, price_month=Decimal("5000.00"),
+            db, club, u15, "U15 Waterpolo", Program.WATERPOLO,
+            BillingType.MONTHLY, price=Decimal("5000.00"),
         )
         get_or_create_membership(
-            db, club, "U15 Swimming", Program.SWIMMING,
-            months_count=1, price_month=Decimal("3000.00"),
+            db, club, u15, "U15 Swimming", Program.SWIMMING,
+            BillingType.MONTHLY, price=Decimal("3000.00"),
+        )
+        masters_waterpolo = get_or_create_membership(
+            db, club, masters, "Masters Waterpolo", Program.WATERPOLO,
+            BillingType.TERM, price=Decimal("15000.00"), term_months=3,
         )
         get_or_create_membership(
-            db, club, "Masters Waterpolo", Program.WATERPOLO,
-            months_count=3, price_month=Decimal("4000.00"), installments_count=3,
-        )
-        get_or_create_membership(
-            db, club, "Masters Swimming", Program.SWIMMING,
-            months_count=3, price_month=Decimal("2500.00"), installments_count=3,
+            db, club, masters, "Masters Swimming", Program.SWIMMING,
+            BillingType.TERM, price=Decimal("7500.00"), term_months=3,
         )
 
+        # One of each billing type, so both generation paths are seeded. Each
+        # also enrols its player in the current season's group.
         get_or_create_contract(db, club, player_one, u15_waterpolo)
+        get_or_create_contract(db, club, player_two, masters_waterpolo)
 
         db.commit()
         print(f"\nDone. Admin login: {admin.email} / Password123!")

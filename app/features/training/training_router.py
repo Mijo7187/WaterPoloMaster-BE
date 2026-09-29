@@ -10,7 +10,7 @@ from fastapi import Depends
 from app.common.crud.crud_router import create_crud_router
 from app.common.crud.crud_schemas import CrudEndpointConfig, CrudListEndpointConfig
 from app.core.permissions import Permission, check_permissions
-from app.features.training.training_schemas import TrainingCreate, TrainingFilters, TrainingListResponse, TrainingUpdate, TrainingResponse
+from app.features.training.training_schemas import TrainingCreate, TrainingFilters, TrainingListResponse, TrainingUpdate, TrainingResponse, TrainingSummary
 from app.features.training.training_service import TrainingService
 
 router = create_crud_router(
@@ -32,6 +32,7 @@ router = create_crud_router(
     get_list_conf=CrudListEndpointConfig(
         schema=TrainingListResponse,
         filters=TrainingFilters,
+        summary_schema=TrainingSummary,
         dependencies=[Depends(check_permissions(Permission.VIEW_TRAININGS))],
     ),
     scope_by_company=True,

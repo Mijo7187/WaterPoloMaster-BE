@@ -1,143 +1,87 @@
 <!--
-  Loaded into every session. Keep this under ~200 lines.
-  HTML comments are stripped on load — use them for human-only notes.
-  Multi-step procedures live in .claude/skills/ (loaded only when invoked).
+  Loaded into every session. Keep this short — details live in .claude/rules/ (path-scoped)
+  and multi-step procedures in .claude/skills/. HTML comments are stripped on load.
 -->
 
-# WaterPoloMaster Backend
+# WaterPoloMaster — Backend
 
-FastAPI + SQLAlchemy 2 + Pydantic v2 backend for club/payment management. SQLite in dev, Postgres-ready. Vertical (feature-based) architecture on top of a generic CRUD framework in `app/common/crud/`.
+FastAPI 0.115 + SQLAlchemy 2 (classic `Column(...)` declarative) + Pydantic v2 + Alembic. SQLite in dev
+(`waterpolo.db`), Postgres-ready. Redis for token revocation, APScheduler for nightly billing/training jobs.
+Vertical, feature-based architecture on a generic CRUD framework in `app/common/crud/`.
+Frontend lives in the separate repo `WaterPoloMaster-FE` (React/MobX) — it consumes this API 1:1
+(snake_case fields, `{status, messages, data, detail}` envelope).
 
 ## Commands
 
 ```bash
-pip install -r requirements.txt                          # install
-python run.py                                            # dev server (uvicorn, reload, host/port from .env)
-pytest                                                   # tests (in-memory SQLite via conftest.py)
-alembic revision --autogenerate -m "describe change"     # generate migration
-alembic upgrade head                                     # apply migrations
+pip install -r requirements.txt
+python run.py                                         # dev server (uvicorn, reload; HOST/PORT from .env) → /docs
+pytest                                                # full suite, in-memory SQLite (~4 min, 492 tests)
+pytest app/features/season/                           # one feature (seconds–1 min)
+pytest app/features/contract/contract_test.py -k debt # one area
+alembic revision --autogenerate -m "describe change"  # new migration (then REVIEW it)
+alembic upgrade head                                  # apply — ask first
+alembic heads                                         # must print exactly one head
 ```
 
-No linter/formatter is configured in the repo. Don't introduce one unless asked.
+Tests need `APP_ENV=testing DATABASE_URL=sqlite:///./test.db SECRET_KEY=x` if no `.env` exists (CI sets them).
+CI (`.github/workflows/tests.yml`): pytest on push/PR to `develop`, Python 3.12.
+No formatter/linter config in the repo — don't add one unless asked. (The Claude hook only runs
+`ruff --select F` on edited files to catch undefined names / unused variables; it changes nothing.)
 
 ## Folder map
 
 ```
 app/
-├── main.py                    FastAPI app, router registration
-├── core/
-│   ├── config.py              Settings (pydantic-settings, .env)
-│   ├── db/                    Base, session, get_db dependency
-│   ├── api/                   Exception handlers, success_response, exceptions
-│   ├── security.py            JWT + bcrypt utilities
-│   ├── permissions.py         Permission enum + check_permissions dependency factory
-│   └── redis.py               Redis client (token revocation)
-├── common/crud/               Generic CRUD framework (see below)
-├── features/                  One folder per feature: {feature}_{model,schemas,repository,service,router}.py
-│   ├── auth/  users/  company/  training/  wallet/  payment/
-│   └── sifarnici/             Reference data (country, city, payment_type, expense/income category)
-└── utils/                     Helpers (dateUtils.py)
-
-alembic/                       Migrations
-tests/                         Pytest suite
-conftest.py                    Test DB fixtures (in-memory SQLite)
-run.py                         Dev entry point
+├── main.py                 app, CORS (localhost:5173 = FE), router registration (prefix /api), scheduler start
+├── core/                   config (pydantic-settings), db/, api/ (envelope, exceptions, handlers),
+│                           security (JWT/bcrypt), permissions (Permission enum + ROLE_PERMISSIONS), redis, rate_limit
+├── common/crud/            generic CRUD: repository, service, router factory, schemas
+├── common/resolver/        polymorphic resolver (payment payable/wallet owner)
+├── features/{name}/        {name}_model / _schemas / _repository / _service / _router / _test .py
+│   ├── auth users company season group group_user
+│   ├── membership contract contract_installment payment wallet      ← billing
+│   ├── training training_segments training_users tournament tournament_users
+│   └── sifarnici/          country city selection exercise_option expense_category income_category
+├── scheduler/              billing_jobs, contract_jobs, training_jobs (+ tests), scheduler.py (cron in CLUB_TIMEZONE)
+└── utils/
+alembic/ (env.py imports every model!)  conftest.py (fixtures)  seed_*.py / reset_dev_data.py / dev_reset.py
+docs/frontend/              API change notes written for the frontend
 ```
 
-## Architecture rules — strict layering, never cross
+## Golden rules (details in `.claude/rules/`)
 
-- **Repositories** are the only place SQLAlchemy queries/sessions live. No business logic.
-- **Services** hold business logic, orchestration, transactions. Call repositories — never the ORM directly.
-- **Routers** handle HTTP only: request/response shaping, auth dependencies, status codes. No DB, no business logic.
-- **Pydantic schemas** for all request/response IO. Keep ORM models and Pydantic schemas separate (never return a SQLAlchemy model directly from a route).
+1. **Layering**: router = HTTP + auth deps only · service = business logic, hooks, orchestration ·
+   repository = every SQLAlchemy query/commit · schemas = all IO. Never return an ORM object from a route.
+2. **Every endpoint** has `Depends(check_permissions(Permission.X))`. Tenant data is **company-scoped**
+   (`scope_by_company=True` or the `enforce_company_*` helpers). SUPER_ADMIN bypasses scoping.
+3. **Errors**: raise `AppException` subclasses (`NotFoundException`, `ForbiddenException`, `BadRequestException`,
+   `ConflictException`, `ValidationException`) — never `HTTPException` from services.
+4. **Migrations**: always autogenerate, then review; never edit a migration that's committed/applied.
+   New model → import it in `alembic/env.py`. Ask before `upgrade`, `downgrade`, dropping columns/tables,
+   deleting rows, resetting `waterpolo.db` or running seed/reset scripts.
+5. **Money/billing invariants** (see `rules/billing-domain.md`): balances are computed, never stored;
+   `contract.amount` is per-installment; installments are machine-generated; outstanding = `OUTSTANDING_STATUSES`.
+6. **API changes are FE changes**: renaming/removing a response field, enum value or filter breaks the
+   frontend. Note it in `docs/frontend/` (skill `/fe-contract`).
+7. Pydantic v2 only. Match the patterns already in the file you edit; don't invent new abstractions.
+8. Don't say "done" until the touched features' tests pass (`/verify`).
 
-## Generic CRUD framework — idioms
+## Domain in one breath
 
-The framework lives in [app/common/crud/](app/common/crud/). Every concrete entity follows the same shape — match it.
+Company = tenant, `company_type` CLUB | POOL | SUPPLIER | ACADEMY (the FE enum also has TOURNAMENT — known
+mismatch, BE rejects it); a club may sit under an
+ACADEMY (`academy_id`). Users: exactly one company, `roles` JSON array of SUPER_ADMIN | ADMIN | COACH | PLAYER | USER.
+Seasons usually belong to the academy, selections/users to its clubs. Group = (season, selection); group_user = members.
+Billing: membership (price plan) → contract (MEMBERSHIP | STAFF) → contract_installment → payment between wallets.
+Trainings have segments (SWIMMING, GYM, WORK_WITH_BALL, SPARRING). First real customer: an academy with 5 clubs
+(first: PK Taš011), go-live mid-October 2026 — prefer safe, reversible changes.
 
-- **Dynamic filters**: Django-style `field__operator` syntax (`name__ilike`, `created_at__gte`, `id__in` via comma-separated). Parsed in [crud_repository.py:69](app/common/crud/crud_repository.py#L69). Supported operators: `eq` (default), `like`, `ilike`, `gte`, `lte`, `gt`, `lt`, `neq`, `isnull`. Comma-separated values auto-trigger `IN`.
-- **Eager loading**: override `get_list_relations()` and `get_by_id_relations()` on the repository subclass — they are **independent** (override separately). Return a list of `lambda: selectinload(Model.relation)`. See [training_repository.py:16-28](app/features/training/training_repository.py#L16-L28).
-- **Many-to-many**: override `apply_create_relations()` / `apply_update_relations()` on the repository — not the service. See [training_repository.py:30-38](app/features/training/training_repository.py#L30-L38).
-- **Pagination**: `page` / `size` live on the `CrudFilters` base class ([crud_schemas.py:55-56](app/common/crud/crud_schemas.py#L55-L56)). Defaults page=1, size=20, max size=100. Extracted automatically — don't handle in service or router.
-- **Endpoint configs are separated**: `create_conf`, `update_conf`, `get_by_id_conf` use `CrudEndpointConfig`; `get_list_conf` uses `CrudListEndpointConfig` (adds `filters`). Each takes a Pydantic `schema` and a list of FastAPI `dependencies`.
-- **Lifecycle hooks**: `CrudHooks(pre_create, post_create, pre_update, post_update)` passed to the service `__init__`. `pre_create(data, db)` and `pre_update(obj_id, data, db)` return a transformed dict. Use for enum→value conversion, derived field computation, etc. See [training_service.py](app/features/training/training_service.py).
-- **Router factory**: `create_crud_router(prefix, tag, service_factory, create_conf, update_conf, get_by_id_conf, get_list_conf, enable_soft_delete=False)`. Returns an `APIRouter` — you can attach custom endpoints to it after creation.
-- **Manual router pattern** is also fine when CRUD doesn't fit (custom endpoints, computed responses). See [wallet_router.py](app/features/wallet/wallet_router.py).
-- **Response envelope**: routers return `success_response(data=..., messages=[...], status_code=...)` — list endpoints return `{ items, pagination: { total, page, size, pages } }`.
+## Working with Claude here
 
-### Concrete entity file naming and inheritance signatures
-
-For an entity `Foo`, create five files under `app/features/foo/`:
-
-| File | Inherits from |
-|---|---|
-| `foo_model.py` | `Base` (from `app.core.db.base`) |
-| `foo_schemas.py` | `FooCreate(CrudCreateSchema)`, `FooUpdate(CrudUpdateSchema)`, `FooResponse(CrudResponseSchema)`, `FooListResponse(CrudResponseSchema)`, `FooFilters(CrudFilters)` |
-| `foo_repository.py` | `FooRepository(CrudRepository[Foo])` — `super().__init__(db, Foo)` |
-| `foo_service.py` | `FooService(CrudService[Foo])` — `super().__init__(db, FooRepository(db), hooks=...)` |
-| `foo_router.py` | `create_crud_router(...)` factory call |
-
-Then register the router in [app/main.py](app/main.py).
-
-For full step-by-step scaffolding, use the `new-crud-entity` skill.
-
-## Golden rules
-
-- **Never hand-edit Alembic migrations.** Always autogenerate with `alembic revision --autogenerate -m "..."` and review the output. If autogenerate misses something (e.g. enum changes, server defaults), add manual ops on top — don't rewrite from scratch.
-- **Ask before destructive DB ops**: dropping tables/columns, deleting rows, `alembic downgrade`, truncating, resetting `waterpolo.db`. Confirm even in dev.
-- **Match existing patterns** in the file being edited rather than inventing new ones. The framework's whole point is consistency — don't add a new abstraction layer on the side.
-- **Don't bypass the layering** for convenience. If a router needs a DB query, that's a sign the repository or service is missing a method — add it there.
-- **Pydantic v2 syntax only** (`model_config = ConfigDict(from_attributes=True)`, `model_dump(exclude_unset=True)`, `model_validate(obj)`). Don't import from `pydantic.v1`.
-- **SQLAlchemy 2.0 idioms** — but most models in this repo use the classic `Column(...)` declarative style. Match what's already there.
-
-## Auth & authorization
-
-Two layers of access control. Both are required for any mutating endpoint.
-
-### Layer 1 — Coarse RBAC at the router (always)
-
-Every endpoint gets a `dependencies=[Depends(check_permissions(Permission.X))]`. Permissions live in [app/core/permissions.py](app/core/permissions.py); add new ones to the `Permission` enum and the `ROLE_PERMISSIONS` mapping for the roles that should hold them.
-
-Roles today (`UserRole` enum in [users_models.py:20](app/features/users/users_models.py#L20)):
-- `SUPER_ADMIN` — all permissions
-- `ADMIN` — most permissions, scoped to their own company in practice
-- `USER` — read-only on users
-
-`User.roles` is a JSON array — users can hold multiple roles simultaneously.
-
-<!--
-  Planned role expansion: coach, player, parent, club_admin, supplier.
-  Ask before adding new roles — they need to be added to the UserRole enum,
-  the ROLE_PERMISSIONS mapping, and possibly bespoke route dependencies.
--->
-
-### Layer 2 — Row-level ownership in `pre_update` (when needed)
-
-When a user with the right permission still shouldn't be allowed to touch a specific record (e.g. an ADMIN editing trainings outside their own company), the check belongs in a `pre_update` hook on the service. **Not in the router. Not in the repository.**
-
-Reference implementation: [training_service.py](app/features/training/training_service.py) — `_enforce_company_scope_on_update`. Pattern:
-
-1. Hook receives `(obj_id, data, db, current_user)`.
-2. If `current_user is None` — internal call (test, script, background job), skip. HTTP auth is enforced upstream by `check_permissions`; this hook only scopes already-authenticated requests.
-3. SUPER_ADMIN bypasses.
-4. Fetch the existing row; compare `existing.company_id` to `current_user.company_id`.
-5. Mismatch → `raise ForbiddenException("...")`.
-6. Return `data` unchanged.
-
-The framework injects `current_user` automatically when an endpoint goes through `create_crud_router`. Manual routers (e.g. [payment_router.py](app/features/payment/payment_router.py)) need to pass `current_user=Depends(get_current_active_user)` and forward it: `service.create(data, current_user=current_user)`.
-
-### Where each kind of check lives — quick reference
-
-| Check | Lives in |
-|---|---|
-| "Does this user's role grant this *kind* of action?" | Router `dependencies` via `check_permissions(Permission.X)` |
-| "Can this user touch this *specific* record?" | `pre_update` (or `pre_create`) hook on the service |
-| "Is the request body valid?" | Pydantic schema |
-| "Does this row exist?" | `CrudService` raises `NotFoundException` automatically |
-| "Is this token valid / user authenticated?" | `get_current_user` / `get_current_active_user` dependency |
-
-### Product context (informs scoping decisions)
-
-- **Personas**: club admins/staff, coaches, players (adult), parents of youth players, suppliers.
-- **Feature areas**: payments + wallet ledger, trainings/scheduling, company/pool/supplier management, sifarnici (reference data: country, city, payment_type, expense/income category). Planned: match/game tracking, stats, attendance.
-- **Company entity** is overloaded — `company_type` is `CLUB | POOL | SUPPLIER`. A "club" and a "pool" are both companies. Users belong to exactly one company via `company_id`.
+Skills: `/feature` `/new-crud-entity` `/add-permission` `/add-list-summary` `/migration` `/add-scheduler-job`
+`/fe-contract` `/verify` `/review` `/security-review` `/pr`.
+Agents: `be-planner` · `entity-scaffolder` · `test-writer` · `migration-reviewer` · `code-reviewer` ·
+`security-reviewer` · `fe-contract-sync`.
+Explain the *why* behind non-obvious decisions and push back when a request fights the architecture.
+Personal overrides: `CLAUDE.local.md`, `.claude/settings.local.json` (gitignored).

@@ -34,7 +34,8 @@ from app.features.training_segments.training_segments_router import router as tr
 from app.features.sifarnici.exercise_option.exercise_option_router import router as exercise_option_router
 from app.features.season.season_router import router as season_router
 from app.features.sifarnici.selection.selection_router import router as selection_router
-from app.features.season_selection_user.season_selection_user_router import router as season_selection_user_router
+from app.features.group.group_router import router as group_router
+from app.features.group_user.group_user_router import router as group_user_router
 from app.features.membership.membership_router import router as membership_router
 from app.features.contract.contract_router import router as contract_router
 from app.features.contract_installment.contract_installment_router import (
@@ -240,9 +241,15 @@ app.include_router(
     prefix="/api"
 )
 
-# Season Selection User
+# Group (a selection in a season)
 app.include_router(
-    season_selection_user_router,
+    group_router,
+    prefix="/api"
+)
+
+# Group User (who is in a group)
+app.include_router(
+    group_user_router,
     prefix="/api"
 )
 
