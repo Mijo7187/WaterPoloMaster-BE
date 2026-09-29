@@ -50,17 +50,24 @@ def payable_registry() -> Dict[Any, ResolverEntry]:
         from app.features.contract_installment.contract_installment_model import (
             ContractInstallment,
         )
+        from app.features.membership.membership_model import Membership
         from app.features.payment.payment_model import PayableType
         from app.features.tournament.tournament_model import Tournament
         from app.features.training.training_model import Training
 
         _PAYABLE_REGISTRY = {
+            # Loads the whole chain PayableContractInstallmentResponse
+            # serializes: the installment's contract with its user and its
+            # catalog plan (plus the plan's selection).
             PayableType.CONTRACT_INSTALLMENT: ResolverEntry(
                 ContractInstallment,
                 lambda: [
                     selectinload(ContractInstallment.contract).selectinload(
                         Contract.user
                     ),
+                    selectinload(ContractInstallment.contract)
+                    .selectinload(Contract.membership)
+                    .selectinload(Membership.selection),
                 ],
             ),
             PayableType.TOURNAMENT: ResolverEntry(

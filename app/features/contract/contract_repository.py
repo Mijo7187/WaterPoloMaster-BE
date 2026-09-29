@@ -3,9 +3,10 @@
 # ============================================
 
 from datetime import date
-from typing import Any, List
+from decimal import Decimal
+from typing import Any, List, Optional
 
-from sqlalchemy import and_, false, or_
+from sqlalchemy import and_, case, false, func, or_
 from sqlalchemy.orm import Session, selectinload
 
 from app.common.crud.crud_repository import CrudRepository
@@ -14,9 +15,7 @@ from app.features.contract.contract_model import (
     ContractStatus,
     ContractType,
 )
-from app.features.contract_installment.contract_installment_model import (
-    ContractInstallment,
-)
+from app.features.membership.membership_model import BillingType, Membership
 from app.features.season.season_model import Season
 
 
@@ -27,7 +26,10 @@ class ContractRepository(CrudRepository[Contract]):
     def get_list_relations(self):
         return [
             lambda: selectinload(Contract.user),
-            lambda: selectinload(Contract.membership),
+            # Chained: the nested membership carries its own selection.
+            lambda: selectinload(Contract.membership).selectinload(
+                Membership.selection
+            ),
         ]
 
     def _apply_filter(self, q, key: str, value: Any):
@@ -54,36 +56,73 @@ class ContractRepository(CrudRepository[Contract]):
             )
         return super()._apply_filter(q, key, value)
 
+    def get_summary(self, filters, company_id=None) -> Optional[dict]:
+        q = self.list_query(filters, company_id)
+
+        by_status = {s.value: 0 for s in ContractStatus}
+        for status, n in (
+            q.with_entities(Contract.status, func.count(Contract.id))
+            .group_by(Contract.status)
+            .all()
+        ):
+            by_status[ContractStatus(status).value] = n
+
+        def recurring(*conds):
+            return func.coalesce(
+                func.sum(
+                    case((and_(Contract.status == ContractStatus.ACTIVE, *conds), Contract.amount), else_=0)
+                ),
+                0,
+            )
+
+        income, outcome = q.with_entities(
+            recurring(
+                Contract.contract_type == ContractType.MEMBERSHIP,
+                Contract.billing_type == BillingType.MONTHLY,
+            ),
+            recurring(Contract.contract_type == ContractType.STAFF),
+        ).one()
+
+        return {
+            "count": sum(by_status.values()),
+            "by_status": by_status,
+            "monthly_income": Decimal(str(income or 0)),
+            "monthly_outcome": Decimal(str(outcome or 0)),
+        }
+
     def get_by_id_relations(self):
         return [
             lambda: selectinload(Contract.user),
-            lambda: selectinload(Contract.membership),
+            lambda: selectinload(Contract.membership).selectinload(
+                Membership.selection
+            ),
             lambda: selectinload(Contract.installments),
         ]
 
-    def apply_create_relations(self, db_obj: Contract, data: dict) -> None:
-        """Turn `installments_list` into contract_installment rows.
-
-        The service has already validated and normalized the list (see
-        _resolve_installments), so this only materializes it.
-        """
-        for item in data.pop("installments_list", None) or []:
-            db_obj.installments.append(ContractInstallment(**item))
-
-    def get_active_staff_for_month(
+    def get_active_recurring_for_month(
         self, month_start: date, month_end: date
     ) -> List[Contract]:
-        """ACTIVE STAFF contracts covering any day of [month_start, month_end].
+        """ACTIVE recurring contracts covering any day of [month_start, month_end].
 
-        What the monthly salary job pays. STAFF only, deliberately — a
-        MEMBERSHIP's schedule is fixed at signing, and generating more would
-        auto-renew a membership nobody signed.
+        What the monthly recurring billing job pays: STAFF salaries and
+        MEMBERSHIP MONTHLY dues, which are the same shape — one period of
+        `amount` per ACTIVE month.
+
+        MEMBERSHIP TERM is excluded deliberately. Its single block installment
+        is written once at activation; generating more would auto-renew a block
+        nobody signed. The next block is a new contract.
         """
         return (
             self.db.query(Contract)
             .filter(
                 Contract.status == ContractStatus.ACTIVE,
-                Contract.contract_type == ContractType.STAFF,
+                or_(
+                    Contract.contract_type == ContractType.STAFF,
+                    and_(
+                        Contract.contract_type == ContractType.MEMBERSHIP,
+                        Contract.billing_type == BillingType.MONTHLY,
+                    ),
+                ),
                 Contract.start_date <= month_end,
                 or_(Contract.end_date.is_(None), Contract.end_date >= month_start),
             )

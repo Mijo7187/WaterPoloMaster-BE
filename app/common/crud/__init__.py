@@ -13,6 +13,7 @@ from app.common.crud.crud_schemas import (
     RelationConfig,
     PaginationMeta,
     PaginatedResponse,
+    CrudSummarySchema,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "RelationConfig",
     "PaginationMeta",
     "PaginatedResponse",
+    "CrudSummarySchema",
 ]

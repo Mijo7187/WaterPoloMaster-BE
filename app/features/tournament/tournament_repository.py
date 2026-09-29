@@ -5,6 +5,7 @@
 from sqlalchemy.orm import Session, selectinload
 
 from app.common.crud.crud_repository import CrudRepository
+from app.features.group.group_model import Group
 from app.features.tournament.tournament_model import Tournament
 from app.features.tournament_users.tournament_users_model import TournamentUsers
 
@@ -29,6 +30,8 @@ class TournamentRepository(CrudRepository[Tournament]):
             lambda: selectinload(Tournament.company),
             lambda: selectinload(Tournament.pool),
             lambda: selectinload(Tournament.season),
+            # Chained: the list response prints the squad's selection name.
+            lambda: selectinload(Tournament.group).selectinload(Group.selection),
         ]
 
     def get_by_id_relations(self):
@@ -37,4 +40,6 @@ class TournamentRepository(CrudRepository[Tournament]):
             lambda: selectinload(Tournament.company),
             lambda: selectinload(Tournament.pool),
             lambda: selectinload(Tournament.season),
+            lambda: selectinload(Tournament.group).selectinload(Group.selection),
+            lambda: selectinload(Tournament.group).selectinload(Group.season),
         ]

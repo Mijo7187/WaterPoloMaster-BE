@@ -9,55 +9,82 @@ from sqlalchemy.orm import Session
 from app.common.crud.crud_schemas import CrudHooks
 from app.common.crud.crud_service import CrudService
 from app.core.api.exceptions import (
-    BadRequestException,
     ConflictException,
     ForbiddenException,
     NotFoundException,
+    ValidationException,
 )
-from app.features.membership.membership_model import Membership, divides_term_evenly
+from app.features.membership.membership_model import BillingType, Membership
 from app.features.membership.membership_repository import MembershipRepository
 from app.features.users.users_models import User, UserRole
 
 
-def _validate_installments(months_count, installments_count) -> None:
-    """Reject a split that would give fractional-month installments."""
-    if months_count is None or installments_count is None:
+def _validate_term_months(billing_type, term_months) -> None:
+    """The same rule the Pydantic validator enforces, re-checked against the
+    MERGED row on update — a patch that sends only `billing_type` cannot be
+    validated by the schema alone."""
+    if billing_type is None:
         return
-    if not divides_term_evenly(months_count, installments_count):
-        raise BadRequestException(
-            f"installments_count must divide the {months_count}-month term "
-            f"evenly — {installments_count} does not."
+    if BillingType(billing_type) == BillingType.TERM:
+        if term_months is None or term_months < 1:
+            raise ValidationException(
+                ["term_months"],
+                "term_months is required and must be at least 1 when "
+                "billing_type is TERM.",
+            )
+    elif term_months is not None:
+        raise ValidationException(
+            ["term_months"],
+            "term_months must be null when billing_type is MONTHLY.",
         )
 
 
-def _assert_unique(db, company_id, name, program, exclude_id: Optional[int] = None) -> None:
-    """Enforce UNIQUE(company_id, name, program) with a readable 409.
-
-    Checked on update as well as create — leaving it to the DB constraint
-    would surface a raw IntegrityError instead.
-    """
-    if company_id is None or name is None or program is None:
+def _validate_selection(db, company_id, selection_id) -> None:
+    """A plan prices one of ITS OWN club's selections."""
+    if company_id is None or selection_id is None:
         return
 
-    q = db.query(Membership).filter(
-        Membership.company_id == company_id,
-        Membership.name == name,
-        Membership.program == program,
-    )
-    if exclude_id is not None:
-        q = q.filter(Membership.id != exclude_id)
+    selection = MembershipRepository(db).get_selection(selection_id)
+    if not selection:
+        raise NotFoundException("Selection not found")
+    if selection.company_id != company_id:
+        raise ValidationException(
+            ["selection_id"],
+            "The selection belongs to a different company than the membership.",
+        )
 
-    if q.first():
+
+def _assert_unique(
+    db, company_id, selection_id, program, billing_type,
+    exclude_id: Optional[int] = None,
+) -> None:
+    """Enforce UNIQUE(company_id, selection_id, program, billing_type) with a
+    readable 409. Checked on update as well as create — leaving it to the DB
+    constraint would surface a raw IntegrityError instead."""
+    if None in (company_id, selection_id, program, billing_type):
+        return
+
+    if MembershipRepository(db).find_duplicate(
+        company_id, selection_id, program, billing_type, exclude_id=exclude_id
+    ):
         raise ConflictException(
-            "This company already has a membership with that name and program."
+            "This company already has a membership for that selection, "
+            "program and billing type."
         )
 
 
 def _membership_pre_create(
     data: dict, db, current_user: Optional[User] = None
 ) -> dict:
-    _validate_installments(data.get("months_count"), data.get("installments_count"))
-    _assert_unique(db, data.get("company_id"), data.get("name"), data.get("program"))
+    _validate_term_months(data.get("billing_type"), data.get("term_months"))
+    _validate_selection(db, data.get("company_id"), data.get("selection_id"))
+    _assert_unique(
+        db,
+        data.get("company_id"),
+        data.get("selection_id"),
+        data.get("program"),
+        data.get("billing_type"),
+    )
     return data
 
 
@@ -79,15 +106,30 @@ def _membership_pre_update(
             )
 
     if existing:
-        _validate_installments(
-            data.get("months_count", existing.months_count),
-            data.get("installments_count", existing.installments_count),
-        )
+        company_id = data.get("company_id", existing.company_id)
+        selection_id = data.get("selection_id", existing.selection_id)
+        billing_type = data.get("billing_type", existing.billing_type)
+        term_months = data.get("term_months", existing.term_months)
+
+        # Switching TERM -> MONTHLY drops the block length rather than failing
+        # on a leftover the caller never sent. (The other direction is caught
+        # by the schema: billing_type=TERM without term_months is a 422.)
+        if (
+            billing_type is not None
+            and BillingType(billing_type) == BillingType.MONTHLY
+            and term_months is not None
+        ):
+            term_months = None
+            data["term_months"] = None
+
+        _validate_term_months(billing_type, term_months)
+        _validate_selection(db, company_id, selection_id)
         _assert_unique(
             db,
-            data.get("company_id", existing.company_id),
-            data.get("name", existing.name),
+            company_id,
+            selection_id,
             data.get("program", existing.program),
+            billing_type,
             exclude_id=obj_id,
         )
 

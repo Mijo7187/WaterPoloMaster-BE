@@ -88,6 +88,9 @@ class CrudService(Generic[ModelType]):
     def get_list(self, filters: CrudFilters, company_id: Optional[int] = None) -> Tuple[List[ModelType], int]:
         return self.repository.get_list(filters=filters, company_id=company_id)
 
+    def get_summary(self, filters: CrudFilters, company_id: Optional[int] = None) -> Optional[dict]:
+        return self.repository.get_summary(filters=filters, company_id=company_id)
+
     def update(self, obj_id: int, schema: BaseModel, current_user: Optional[Any] = None) -> ModelType:
         data = schema.model_dump(exclude_unset=True)
         if self.hooks.pre_update:

@@ -181,6 +181,42 @@ class CrudRepository(Generic[ModelType]):
         q = self._apply_company_scope(q, company_id)
         return q.filter(self.model.id == obj_id).first()
 
+    _LIST_CONTROL_KEYS = ("page", "size", "order_by", "order_dir")
+
+    def list_query(self, filters: CrudFilters, company_id: Optional[int] = None):
+        """
+        The filtered, company-scoped query behind get_list — without
+        pagination, ordering or relation loading.
+
+        get_list pages over it; get_summary aggregates over it, so a
+        summary always covers exactly the rows the list is showing.
+        """
+        filter_dict = filters.model_dump(exclude_unset=True)
+        for key in self._LIST_CONTROL_KEYS:
+            filter_dict.pop(key, None)
+
+        q = self.db.query(self.model)
+        q = self._apply_company_scope(q, company_id)
+
+        for key, value in filter_dict.items():
+            if value is None:
+                continue
+            q = self._apply_filter(q, key, value)
+        return q
+
+    def get_summary(self, filters: CrudFilters, company_id: Optional[int] = None) -> Optional[dict]:
+        """
+        Aggregates over the whole filtered set (not the current page).
+        Override in subclass; None means "this list has no summary".
+
+        Example:
+            row = self.list_query(filters, company_id).with_entities(
+                func.count(Foo.id), func.coalesce(func.sum(Foo.amount), 0),
+            ).one()
+            return {"count": row[0], "total_amount": row[1]}
+        """
+        return None
+
     def get_list(self, filters: CrudFilters, company_id: Optional[int] = None) -> Tuple[List[ModelType], int]:
         """
         Returns (items, total) tuple.
@@ -190,26 +226,17 @@ class CrudRepository(Generic[ModelType]):
         company_id, when given, is always applied on top of the
         client filters — a client-sent company_id cannot widen it.
         """
-        # Extract pagination and ordering, filter rest
-        filter_dict = filters.model_dump(exclude_unset=True)
-        page = filter_dict.pop("page", filters.page)
-        size = filter_dict.pop("size", filters.size)
-        order_by_field = filter_dict.pop("order_by", None)
-        order_dir = filter_dict.pop("order_dir", "asc")
+        page = filters.page
+        size = filters.size
+        order_by_field = filters.order_by
+        order_dir = filters.order_dir if "order_dir" in filters.model_fields_set else "asc"
         offset = (page - 1) * size
 
-        q = self.db.query(self.model)
-        q = self._apply_company_scope(q, company_id)
+        q = self.list_query(filters, company_id)
 
         # Apply default relations
         for opt in self.get_list_relations():
             q = q.options(opt() if callable(opt) else opt)
-
-        # Apply filters
-        for key, value in filter_dict.items():
-            if value is None:
-                continue
-            q = self._apply_filter(q, key, value)
 
         # Apply ordering
         if order_by_field and hasattr(self.model, order_by_field):

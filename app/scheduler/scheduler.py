@@ -3,7 +3,8 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.core.config import settings
 from app.scheduler.billing_jobs import (
-    run_monthly_staff_salary_job,
+    run_daily_debt_job,
+    run_monthly_recurring_billing_job,
     run_nightly_billing_job,
 )
 from app.scheduler.contract_jobs import run_daily_contract_status_job
@@ -38,12 +39,22 @@ def init_scheduler() -> None:
         id="daily_contract_status_job",
         replace_existing=True,
     )
-    # STAFF salaries: one calendar-month installment + PENDING payment per
-    # ACTIVE STAFF contract, on the 1st. Idempotent per (contract, month).
+    # Recurring dues: one calendar-month installment + PENDING payment per
+    # ACTIVE STAFF and MEMBERSHIP MONTHLY contract, on the 1st. Idempotent per
+    # (contract, month). MEMBERSHIP TERM is excluded — billed once at signing.
     scheduler.add_job(
-        run_monthly_staff_salary_job,
+        run_monthly_recurring_billing_job,
         CronTrigger(day=1, hour=0, minute=5),
-        id="monthly_staff_salary_job",
+        id="monthly_recurring_billing_job",
+        replace_existing=True,
+    )
+    # Late dues: PENDING -> DEBT once the due date has passed. At 00:30, after
+    # billing (00:15), so a due raised tonight is judged against its own due
+    # date instead of being flipped the moment it appears.
+    scheduler.add_job(
+        run_daily_debt_job,
+        CronTrigger(hour=0, minute=30),
+        id="daily_debt_job",
         replace_existing=True,
     )
     scheduler.start()

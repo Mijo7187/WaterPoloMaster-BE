@@ -7,7 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.common.crud.crud_service import CrudService
 from app.common.resolver.polymorphic_resolver import resolve_wallet_owners
-from app.features.payment.payment_model import Payment, PaymentStatus
+from app.features.payment.payment_model import (
+    OUTSTANDING_STATUSES,
+    Payment,
+    PaymentStatus,
+)
 from app.features.wallet.wallet_model import Wallet
 from app.features.wallet.wallet_repository import WalletRepository
 from app.features.wallet.wallet_schemas import LedgerEntry
@@ -46,11 +50,15 @@ class WalletService(CrudService[Wallet]):
             )
             .scalar() or 0
         )
+        # PENDING and DEBT are both money still owed — they differ only in
+        # whether the due date has passed. Filtering on PENDING alone would
+        # drop a due out of the outstanding total the moment it went overdue,
+        # which is exactly backwards.
         total_in_pending = Decimal(
             self.db.query(func.coalesce(func.sum(Payment.amount), 0))
             .filter(
                 Payment.receiver_wallet_id == wallet_id,
-                Payment.status == PaymentStatus.PENDING,
+                Payment.status.in_(OUTSTANDING_STATUSES),
             )
             .scalar() or 0
         )
@@ -58,7 +66,7 @@ class WalletService(CrudService[Wallet]):
             self.db.query(func.coalesce(func.sum(Payment.amount), 0))
             .filter(
                 Payment.sender_wallet_id == wallet_id,
-                Payment.status == PaymentStatus.PENDING,
+                Payment.status.in_(OUTSTANDING_STATUSES),
             )
             .scalar() or 0
         )

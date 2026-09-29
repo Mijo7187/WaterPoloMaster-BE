@@ -1,17 +1,27 @@
 # ============================================
 # MEMBERSHIP MODEL - Database Tables
 # ============================================
-# A club's price catalog: one row per plan it sells.
+# A club's price catalog: one row per plan it sells, per selection.
 #
-# This replaces the old season -> selection -> selection_offering ->
-# offering_price chain. Offers are no longer made per season or per
-# selection, so a membership belongs to nothing but its company.
+# `billing_type` decides how a contract signed off the plan is billed:
+#   * MONTHLY — open-ended. `price` is the MONTHLY amount and the recurring
+#     job adds one installment per month for as long as the contract is
+#     ACTIVE. There is no term and no end date; you cancel, you don't re-sign.
+#   * TERM — a fixed block (masters-style quarterly). `price` is the price of
+#     the WHOLE block and `term_months` its length. One installment is written
+#     at activation and the recurring job never touches it. The next block is
+#     a new contract.
 #
-# `months_count` is the term length in months. It replaces the old
-# BillingFrequency enum (MONTHLY/QUARTERLY/YEARLY), so a club can sell a
-# 4- or 10-month plan without a schema change. `price_month` is the price
-# for ONE month — the term total is price_month * months_count, split into
-# `installments_count` equal installments.
+# `selection_id` is what makes "debt per group" derivable without storing a
+# group on the contract. A group is (selection, season), so the debt of one
+# group is:
+#     sum(installment.amount - paid) for installments where
+#         installment.contract.membership.selection = <selection>
+#         AND installment period falls within <season>.[start_date, end_date]
+#         AND NOT waived AND unpaid
+#         [AND contract.company_id = <club>  -- omit for the whole academy]
+# One contract -> one membership -> one selection -> one group per season, so
+# nothing is double-counted and no `group_id` column is needed anywhere.
 # ============================================
 
 import enum
@@ -31,37 +41,39 @@ class Program(str, enum.Enum):
     WATERPOLO = "waterpolo"
 
 
-def divides_term_evenly(months_count: int, installments_count: int) -> bool:
-    """Whether the term splits into whole-month installments.
-
-    A 3-month term takes 1 or 3 installments; 2 would give 1.5 months each.
-    A 12-month term takes 1, 2, 3, 4, 6 or 12.
-    """
-    if not months_count or not installments_count or installments_count < 1:
-        return False
-    return months_count % installments_count == 0
+class BillingType(str, enum.Enum):
+    MONTHLY = "monthly"  # open-ended, one installment per ACTIVE month
+    TERM = "term"        # one fixed block, billed once
 
 
 class Membership(Base):
     __tablename__ = "membership"
     __table_args__ = (
+        # A club sells at most one plan per (selection, program, billing type).
+        # `name` is a free-text label and is deliberately NOT part of the key.
         UniqueConstraint(
-            "company_id", "name", "program",
-            name="uq_membership_company_name_program",
+            "company_id", "selection_id", "program", "billing_type",
+            name="uq_membership_company_selection_program_type",
         ),
     )
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
 
     company_id = Column(Integer, ForeignKey("company.id"), nullable=False, index=True)
-    name = Column(String(255), nullable=False)
+    selection_id = Column(
+        Integer, ForeignKey("selection.id"), nullable=False, index=True
+    )
     program = Column(Enum(Program, name="program"), nullable=False)
 
-    # The term length in months — replaces the old BillingFrequency enum.
-    months_count = Column(Integer, nullable=False, default=1)
-    # Price for ONE month. The term total is price_month * months_count.
-    price_month = Column(Numeric(10, 2), nullable=False)
-    installments_count = Column(Integer, nullable=False, default=1)
+    billing_type = Column(Enum(BillingType, name="billingtype"), nullable=False)
+
+    # MONTHLY: the monthly amount. TERM: the price of the whole block.
+    price = Column(Numeric(10, 2), nullable=False)
+    # TERM only — the block length in months. NULL for MONTHLY.
+    term_months = Column(Integer, nullable=True)
+
+    # Optional display label ("Masters Q1", "U15 waterpolo").
+    name = Column(String(255), nullable=True)
 
     # Retires a plan without deleting it: it drops out of the catalog but
     # anything already referencing it stays readable.
@@ -72,9 +84,10 @@ class Membership(Base):
 
     # Relationships
     company = relationship("Company")
+    selection = relationship("Selection")
 
     def __repr__(self):
         return (
-            f"<Membership(id={self.id}, name='{self.name}', "
-            f"program='{self.program}', months_count={self.months_count})>"
+            f"<Membership(id={self.id}, selection_id={self.selection_id}, "
+            f"program='{self.program}', billing_type='{self.billing_type}')>"
         )

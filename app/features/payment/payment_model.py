@@ -15,9 +15,20 @@ from app.features.wallet.wallet_model import WalletOwnerType
 
 class PaymentStatus(str, enum.Enum):
     PENDING = "pending"
+    # A due whose date has passed and which is still unpaid. Raised from
+    # PENDING by the daily debt job — it is still owed, so it counts towards a
+    # wallet's outstanding totals exactly like PENDING (see
+    # WalletService.get_summary and OUTSTANDING_STATUSES below).
+    DEBT = "debt"
     COMPLETED = "completed"
     FAILED = "failed"
     REFUNDED = "refunded"
+
+
+# Money that is owed but not yet settled. PENDING and DEBT differ only in
+# whether the due date has passed, so every "outstanding" query must accept
+# both — filtering on PENDING alone silently drops overdue dues.
+OUTSTANDING_STATUSES = (PaymentStatus.PENDING, PaymentStatus.DEBT)
 
 
 class PaymentTypeCode(str, enum.Enum):

@@ -133,7 +133,11 @@ class PaymentService(CrudService[Payment]):
         resolve_payables(self.db, [obj])
         return obj
 
-    def update(self, obj_id: uuid.UUID, schema: BaseModel) -> Payment:
+    def update(
+        self, obj_id: uuid.UUID, schema: BaseModel, current_user: Optional[Any] = None
+    ) -> Payment:
+        # current_user is accepted for the CRUD router's signature; row scope is
+        # already enforced by enforce_company_scope before this runs.
         data = schema.model_dump(exclude_unset=True)
         new_status = data.get("status")
 

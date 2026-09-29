@@ -27,20 +27,6 @@ class ContractInstallmentCreate(CrudCreateSchema):
     model_config = ConfigDict(from_attributes=True)
 
 
-class ContractInstallmentItem(CrudCreateSchema):
-    """One entry of a contract's `installments_list` at create.
-
-    Same fields as ContractInstallmentCreate minus contract_id — the contract
-    does not exist yet. amount may be 0 (a scholarship).
-    """
-    period_start: date
-    period_end: date
-    due_date: date
-    amount: Decimal = Field(..., ge=0, decimal_places=2)
-    waived: bool = False
-    model_config = ConfigDict(from_attributes=True)
-
-
 class ContractInstallmentUpdate(CrudUpdateSchema):
     period_start: Optional[date] = None
     period_end: Optional[date] = None

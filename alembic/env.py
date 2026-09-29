@@ -29,7 +29,8 @@ from app.features.training_segments.training_segments_model import (  # noqa: F4
 from app.features.sifarnici.exercise_option.exercise_option_model import ExerciseOption  # noqa: F401
 from app.features.season.season_model import Season  # noqa: F401
 from app.features.sifarnici.selection.selection_model import Selection  # noqa: F401
-from app.features.season_selection_user.season_selection_user_model import SeasonSelectionUser  # noqa: F401
+from app.features.group.group_model import Group  # noqa: F401
+from app.features.group_user.group_user_model import GroupUser  # noqa: F401
 from app.features.membership.membership_model import Membership  # noqa: F401
 from app.features.contract.contract_model import Contract  # noqa: F401
 from app.features.contract_installment.contract_installment_model import (  # noqa: F401

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.common.crud.crud_service import CrudService
 from app.common.crud.crud_schemas import CrudHooks
 from app.core.api.exceptions import ForbiddenException
+from app.features.group.group_service import resolve_group_season_id
 from app.features.season.season_service import resolve_season_id
 from app.features.training.training_model import Training
 from app.features.training.training_repository import TrainingRepository
@@ -22,10 +23,24 @@ def _convert_enums_on_create(data: dict, db, current_user: Optional[User] = None
     return data
 
 
+def _resolve_season(db, group_id, company_id, training_date) -> int:
+    """The season this training belongs to.
+
+    With a group, the group decides — it already carries a season, and that
+    lookup is academy-aware. Without one, fall back to matching the date
+    against the company's own seasons.
+    """
+    if group_id is not None:
+        return resolve_group_season_id(db, group_id, company_id, training_date)
+    return resolve_season_id(db, company_id, training_date)
+
+
 def _training_pre_create(data: dict, db, current_user: Optional[User] = None) -> dict:
-    """Convert enums and resolve the season from the training date before insert."""
+    """Convert enums and resolve the season from the group (or date) before insert."""
     data = _convert_enums_on_create(data, db, current_user)
-    data["season_id"] = resolve_season_id(db, data["company_id"], data["training_date"])
+    data["season_id"] = _resolve_season(
+        db, data.get("group_id"), data["company_id"], data["training_date"]
+    )
     return data
 
 
@@ -66,10 +81,36 @@ def _enforce_company_scope_on_update(
     return data
 
 
+def _resync_season_on_update(
+    obj_id: int, data: dict, db, current_user: Optional[User] = None
+) -> dict:
+    """Re-derive season_id whenever an edit moves what it is derived from.
+
+    season_id is never client-sent, so an edit to the group, the date or the
+    company has to re-resolve it — otherwise the stored season keeps pointing
+    at the old group's season while the row has moved on.
+    """
+    if not {"group_id", "training_date", "company_id"} & data.keys():
+        return data
+
+    existing = db.query(Training).filter(Training.id == obj_id).first()
+    if existing is None:
+        return data
+
+    data["season_id"] = _resolve_season(
+        db,
+        data["group_id"] if "group_id" in data else existing.group_id,
+        data.get("company_id") or existing.company_id,
+        data.get("training_date") or existing.training_date,
+    )
+    return data
+
+
 def _training_pre_update(obj_id: int, data: dict, db, current_user: Optional[User] = None) -> dict:
-    """Compose the ownership check with the enum-conversion step."""
+    """Compose the ownership check, enum conversion and season re-derivation."""
     data = _enforce_company_scope_on_update(obj_id, data, db, current_user)
     data = _convert_enums_on_update(obj_id, data, db, current_user)
+    data = _resync_season_on_update(obj_id, data, db, current_user)
     return data
 
 

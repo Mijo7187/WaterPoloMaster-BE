@@ -100,9 +100,13 @@ class CrudEndpointConfig(BaseModel):
     """
     Config for create, update, and get_by_id endpoints.
     No filters — those are only on list endpoints.
+
+    response_schema (create only): when set, POST / returns the created object
+    serialized through it instead of just its id.
     """
     schema: Type[BaseModel]
     dependencies: List[Any] = Field(default_factory=list)
+    response_schema: Optional[Type[BaseModel]] = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -111,9 +115,14 @@ class CrudListEndpointConfig(BaseModel):
     """
     Config for get_list endpoint.
     Extends base config with filters for field__operator querying.
+
+    summary_schema: serializes the dict returned by the repository's
+    get_summary(). Without it (or when get_summary returns None) the list
+    responds with summary: null.
     """
     schema: Type[BaseModel]
     filters: Optional[Type[CrudFilters]] = None
+    summary_schema: Optional[Type[BaseModel]] = None
     dependencies: List[Any] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -129,7 +138,17 @@ class PaginationMeta(BaseModel):
     pages: int
 
 
+class CrudSummarySchema(BaseModel):
+    """
+    Base for list summaries — aggregates over the whole filtered set
+    (not just the current page). Built from the dict returned by
+    CrudRepository.get_summary().
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PaginatedResponse(BaseModel):
     """Standard paginated list response."""
     items: List[Any]
     pagination: PaginationMeta
+    summary: Optional[Any] = None

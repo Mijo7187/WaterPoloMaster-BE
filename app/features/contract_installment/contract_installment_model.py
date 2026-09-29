@@ -1,9 +1,19 @@
 # ============================================
 # CONTRACT INSTALLMENT MODEL - Database Tables
 # ============================================
-# Per-period obligations generated from a contract when it is activated.
+# Per-period obligations GENERATED from a contract — never sent by a client.
 # Real rows (not computed on the fly) so waivers, mid-term price changes and
 # "who owes month X" all work.
+#
+# Where they come from:
+#   MEMBERSHIP MONTHLY / STAFF -> one per calendar month, at activation and
+#     then from the monthly recurring job for as long as the contract is ACTIVE.
+#   MEMBERSHIP TERM            -> exactly one, covering the whole block,
+#     written at activation.
+#
+# Editing a row is a local correction: it adjusts what is owed for that period
+# and no longer re-derives the parent contract, whose `amount` is the
+# per-installment price rather than a sum.
 #
 # `waived` is the ONLY stored payment-state. paid/pending/partial is computed
 # from the payments that point at the installment, never stored.

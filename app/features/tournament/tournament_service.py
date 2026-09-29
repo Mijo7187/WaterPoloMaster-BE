@@ -10,6 +10,7 @@ from app.common.crud.crud_service import CrudService
 from app.common.crud.crud_schemas import CrudHooks
 from app.core.api.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.features.company.company_model import Company, CompanyType
+from app.features.group.group_service import resolve_group_season_id
 from app.features.season.season_service import resolve_season_id
 from app.features.tournament.tournament_model import Tournament
 from app.features.tournament.tournament_repository import TournamentRepository
@@ -23,10 +24,24 @@ def _validate_pool(pool_id, db) -> None:
         raise BadRequestException("Pool must be a company of type POOL")
 
 
+def _resolve_season(db, group_id, company_id, from_date) -> int:
+    """The season this tournament belongs to.
+
+    With a group, the group decides — it already carries a season, and that
+    lookup is academy-aware. Without one, fall back to matching from_date
+    against the company's own seasons.
+    """
+    if group_id is not None:
+        return resolve_group_season_id(db, group_id, company_id, from_date)
+    return resolve_season_id(db, company_id, from_date)
+
+
 def _pre_create(data: dict, db, current_user: Optional[User] = None) -> dict:
-    """Validate the pool and resolve the season from from_date before insert."""
+    """Validate the pool and resolve the season from the group (or from_date)."""
     _validate_pool(data["pool_id"], db)
-    data["season_id"] = resolve_season_id(db, data["company_id"], data["from_date"])
+    data["season_id"] = _resolve_season(
+        db, data.get("group_id"), data["company_id"], data["from_date"]
+    )
     return data
 
 
@@ -55,11 +70,37 @@ def _enforce_company_scope_on_update(
     return data
 
 
+def _resync_season_on_update(
+    obj_id: int, data: dict, db, current_user: Optional[User] = None
+) -> dict:
+    """Re-derive season_id whenever an edit moves what it is derived from.
+
+    season_id is never client-sent, so an edit to the group, from_date or the
+    company has to re-resolve it — otherwise the stored season keeps pointing
+    at the old group's season while the row has moved on.
+    """
+    if not {"group_id", "from_date", "company_id"} & data.keys():
+        return data
+
+    existing = db.query(Tournament).filter(Tournament.id == obj_id).first()
+    if existing is None:
+        return data
+
+    data["season_id"] = _resolve_season(
+        db,
+        data["group_id"] if "group_id" in data else existing.group_id,
+        data.get("company_id") or existing.company_id,
+        data.get("from_date") or existing.from_date,
+    )
+    return data
+
+
 def _pre_update(obj_id: int, data: dict, db, current_user: Optional[User] = None) -> dict:
-    """Compose the ownership check with pool validation (only if pool_id is being changed)."""
+    """Compose the ownership check, pool validation and season re-derivation."""
     data = _enforce_company_scope_on_update(obj_id, data, db, current_user)
     if "pool_id" in data and data["pool_id"] is not None:
         _validate_pool(data["pool_id"], db)
+    data = _resync_season_on_update(obj_id, data, db, current_user)
     return data
 
 

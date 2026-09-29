@@ -48,6 +48,7 @@ def create_crud_router(
     enable_soft_delete: bool = False,
     deactivate_dependencies: List[Any] = [],
     scope_by_company: bool = False,
+    id_type: type = int,
 ) -> APIRouter:
     """
     Build and return an APIRouter with standard CRUD endpoints.
@@ -66,12 +67,16 @@ def create_crud_router(
                                  list is filtered by company_id, get/update/deactivate
                                  of another company's row → 404, create/update with
                                  another company_id → 403. Model must have company_id.
+        id_type:                 Type of the {item_id} path param (int, or uuid.UUID
+                                 for UUID-keyed models such as Payment).
 
     Notes:
         - load_relations is now defined in the repository (default_relations method)
         - Filters use field__operator convention (e.g. name__ilike, created_at__gte)
         - Pagination uses page/size params (defined in CrudFilters base class)
-        - GET list always returns { items, total, page, size, pages }
+        - GET list always returns { items, pagination, summary }; summary is null
+          unless the repository overrides get_summary and get_list_conf sets
+          summary_schema
     """
  
     # Lazy import to avoid circular dependency between common/ and features/
@@ -96,6 +101,12 @@ def create_crud_router(
         if scope_by_company:
             service.enforce_company_in_data(data.model_dump(), current_user)
         obj = service.create(data, current_user=current_user)
+        if create_conf.response_schema:
+            return success_response(
+                data=create_conf.response_schema.model_validate(obj).model_dump(),
+                messages=[f"{tag} created"],
+                status_code=201,
+            )
         return success_response(
             data={obj.id},
             messages=[f"{tag} created"],
@@ -116,13 +127,15 @@ def create_crud_router(
         current_user: User = Depends(get_current_active_user),
     ):
         service = service_factory(db)
-        if scope_by_company:
-            items, total = service.get_list(
-                filters=filters, company_id=service.company_scope_for(current_user)
-            )
-        else:
-            items, total = service.get_list(filters=filters)
+        company_id = service.company_scope_for(current_user) if scope_by_company else None
+        items, total = service.get_list(filters=filters, company_id=company_id)
         pages = math.ceil(total / filters.size) if total else 0
+
+        summary = None
+        if get_list_conf.summary_schema:
+            raw = service.get_summary(filters=filters, company_id=company_id)
+            if raw is not None:
+                summary = get_list_conf.summary_schema.model_validate(raw).model_dump()
  
         return success_response(
             data={
@@ -133,6 +146,7 @@ def create_crud_router(
                     "size": filters.size,
                     "pages": pages,
                 },
+                "summary": summary,
             }
         )
  
@@ -143,7 +157,7 @@ def create_crud_router(
         dependencies=get_by_id_conf.dependencies or [],
     )
     def get_by_id(
-        item_id: int,
+        item_id: id_type,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_active_user),
     ):
@@ -162,7 +176,7 @@ def create_crud_router(
         dependencies=update_conf.dependencies or [],
     )
     def update(
-        item_id: int,
+        item_id: id_type,
         data: update_conf.schema,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_active_user),
@@ -185,7 +199,7 @@ def create_crud_router(
             dependencies=deactivate_dependencies or [],
         )
         def deactivate(
-            item_id: int,
+            item_id: id_type,
             db: Session = Depends(get_db),
             current_user: User = Depends(get_current_active_user),
         ):
